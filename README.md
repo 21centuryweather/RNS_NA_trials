@@ -12,9 +12,9 @@ Assess rainfall changes from land cover in Northern Australia (NA)
 
 ## Orig CCI landcover
 
-![CCI](ancils/figures/0p04_jules_urban_full_orig.png)
+![CCI](ancils/figures/0p04_julesPFTs_full_orig.png)
 
 ## Updated CCIv2 landcover
 
-![CCIv2](ancils/figures/0p04_jules_urban_full_cciv2_wc.png)
+![CCIv2](ancils/figures/0p04_julesPFTs_full_cciv2_wc.png)
 
