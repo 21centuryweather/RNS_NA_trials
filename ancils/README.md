@@ -4,11 +4,11 @@ These are Northern Australia trials with CCIv2 landcover, per ACCESS-A (but with
 
 ## Orig CCI landcover
 
-![CCI](ancils/figures/0p04_julesPFTs_full_orig.png)
+![CCI](figures/0p04_julesPFTs_full_orig.png)
 
 ## Updated CCIv2 landcover
 
-![CCIv2](ancils/figures/0p04_julesPFTs_full_cciv2_wc.png)
+![CCIv2](figures/0p04_julesPFTs_full_cciv2_wc.png)
 
 ## Steps to produce
 
