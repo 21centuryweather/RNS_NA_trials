@@ -25,6 +25,8 @@ Assess how monsoon rainfall is affected by changes in surface roughness.
 
 ![Sydney domains](ancils/figures/NA_domains_surface_altitude.png)
 
+Code to plot: [ancils/plot_domains.py](ancils/plot_domains.py).
+
 ## Instructions to run:
 
 See [ancils README](ancils/README.md) if they need creation, then to run experiments:
