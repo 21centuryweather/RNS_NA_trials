@@ -25,17 +25,9 @@ Assess how monsoon rainfall is affected by changes in surface roughness.
 
 ![Sydney domains](ancils/figures/NA_domains_surface_altitude.png)
 
-## Orig CCI landcover
-
-![CCI](ancils/figures/0p04_julesPFTs_full_orig.png)
-
-## Updated CCIv2 landcover
-
-![CCIv2](ancils/figures/0p04_julesPFTs_full_cciv2_wc.png)
-
 ## Instructions to run:
 
-See ancils README if they need creation, then to run experiments:
+See [ancils README](ancils/README.md) if they need creation, then to run experiments:
 
 ```
 svn co https://code.metoffice.gov.uk/svn/roses-u/d/g/7/6/8/rns_ostia_NA

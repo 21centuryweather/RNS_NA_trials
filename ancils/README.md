@@ -2,7 +2,15 @@ This describes the ancil generation process.
 
 These are Northern Australia trials with CCIv2 landcover, per ACCESS-A (but without changing mask).
 
-## steps
+## Orig CCI landcover
+
+![CCI](ancils/figures/0p04_julesPFTs_full_orig.png)
+
+## Updated CCIv2 landcover
+
+![CCIv2](ancils/figures/0p04_julesPFTs_full_cciv2_wc.png)
+
+## Steps to produce
 
 1. run u-dg767 with optional file in roses/u-dg767/opt folder, e.g.:
 
