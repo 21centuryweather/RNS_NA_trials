@@ -56,7 +56,6 @@ def plot_rain_diff(ds, coarsen=False):
     # calculate mean mm per day
     pr_mean = ds.mean(dim='time') * 86400  # convert from kg m-2 s-1 to mm/day
 
-    # pr_mean = pr.sum(dim='time')
     pr_mean['diff'] = pr_mean[exps[1]] - pr_mean[exps[0]]
     pr_mean = pr_mean.compute()
 
@@ -75,7 +74,7 @@ def plot_rain_diff(ds, coarsen=False):
                             subplot_kw={'projection': proj})
 
     for ax, exp in zip(axes.flatten(), exps+['diff']):
-        cmap = opts['cmap'] if exp != 'diff' else 'coolwarm'
+        cmap = opts['cmap'] if exp != 'diff' else 'coolwarm_r'
         vmin = 0 if exp != 'diff' else -10
         vmax = 20 if exp != 'diff' else 10
         title = exp if exp != 'diff' else f'{exps[1]} - {exps[0]} difference'
@@ -265,11 +264,6 @@ def get_um_data(exp_path,opts):
         da = da - 273.15
         da.attrs['units'] = '°C'
 
-    if opts['constraint'] in ['stratiform_rainfall_flux_mean']:
-        print('converting from mm/s to mm/h')
-        da = da * 3600.
-        da.attrs['units'] = 'mm/h'
-
     if opts['constraint'] in ['moisture_content_of_soil_layer']:
         da = da.isel(depth=opts['level'])
 
@@ -449,39 +443,39 @@ def save_netcdf(das, exp, opts):
 
     return
 
-def calc_moisture_convergence(u,v,q):
-    """
-    Calculate moisture convergence from zonal and meridional wind components
-    and specific humidity.
+# def calc_moisture_convergence(u,v,q):
+#     """
+#     Calculate moisture convergence from zonal and meridional wind components
+#     and specific humidity.
 
-    Parameters:
-    u : xarray.DataArray
-        Zonal wind component (m/s).
-    v : xarray.DataArray
-        Meridional wind component (m/s).
-    q : xarray.DataArray
-        Specific humidity (kg/kg).
-    Returns:
-    moisture_convergence : xarray.DataArray
-        Moisture convergence (kg/(m^2 s)).
-    """
+#     Parameters:
+#     u : xarray.DataArray
+#         Zonal wind component (m/s).
+#     v : xarray.DataArray
+#         Meridional wind component (m/s).
+#     q : xarray.DataArray
+#         Specific humidity (kg/kg).
+#     Returns:
+#     moisture_convergence : xarray.DataArray
+#         Moisture convergence (kg/(m^2 s)).
+#     """
 
-    print('Calculating moisture convergence...')
+#     print('Calculating moisture convergence...')
     
-    # Ensure input DataArrays have the same dimensions
-    assert u.shape == v.shape == q.shape, "Input DataArrays must have the same dimensions."
+#     # Ensure input DataArrays have the same dimensions
+#     assert u.shape == v.shape == q.shape, "Input DataArrays must have the same dimensions."
     
-    # Compute spatial gradients using finite differences
-    dq_dx = q.differentiate("longitude", edge_order=2)
-    dq_dy = q.differentiate("latitude", edge_order=2)
-    du_dx = u.differentiate("longitude", edge_order=2)
-    dv_dy = v.differentiate("latitude", edge_order=2)
+#     # Compute spatial gradients using finite differences
+#     dq_dx = q.differentiate("longitude", edge_order=2)
+#     dq_dy = q.differentiate("latitude", edge_order=2)
+#     du_dx = u.differentiate("longitude", edge_order=2)
+#     dv_dy = v.differentiate("latitude", edge_order=2)
 
-    # Compute moisture convergence
-    moisture_convergence = -(u * dq_dx + v * dq_dy) - q * (du_dx + dv_dy)
-    moisture_convergence.attrs['units'] = 'kg/(m^2 s)'
+#     # Compute moisture convergence
+#     moisture_convergence = -(u * dq_dx + v * dq_dy) - q * (du_dx + dv_dy)
+#     moisture_convergence.attrs['units'] = 'kg/(m^2 s)'
 
-    return moisture_convergence
+#     return moisture_convergence
 
 def calc_moisture_convergence_emma(u,v,qfluxu,qfluxv):
 
@@ -494,8 +488,8 @@ def calc_moisture_convergence_emma(u,v,qfluxu,qfluxv):
     dx = r * np.cos(u.latitude * np.pi / 180.0) * np.pi / 180.0
     dy = r * np.pi / 180.0
 
-    sfcDiv = ( v.differentiate('latitude') / dy 
-             + u.differentiate('longitude') / dx).to_dataset(name='sfcDiv')
+    # sfcDiv = ( v.differentiate('latitude') / dy 
+    #          + u.differentiate('longitude') / dx).to_dataset(name='sfcDiv')
     qDiv = ( qfluxv.differentiate('latitude') / dy 
            + qfluxu.differentiate('longitude') / dx).to_dataset(name='qDiv')
 
