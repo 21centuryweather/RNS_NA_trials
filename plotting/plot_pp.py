@@ -25,36 +25,17 @@ import warnings
 import importlib
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-oshome=os.getenv('HOME')
-sys.path.append(f'{oshome}/git/RNS_NA_trials/plotting')
-import common_functions as cf
-importlib.reload(cf)
-
 ##############################################################################
 
+oshome=os.getenv('HOME')
 cylc_id = 'rns_ostia_NA'
 cycle_path = f'/scratch/fy29/mjl561/cylc-run/{cylc_id}/share/cycle'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
 plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
 
+variables = ['wind_speed','moisture_convergence','upward_air_velocity_at_300m','upward_air_velocity_at_1000m']
 
-variables = ['specific_humidity','wind_u','wind_v','air_temperature','upward_air_velocity_at_300m','upward_air_velocity_at_1000m','wind_speed_of_gust']
-variables = ['total_precipitation_rate']
-variables = ['stratiform_rainfall_flux']
-variables = ['moisture_flux_u','moisture_flux_v']
-variables = ['wind_speed']
-variables = ['moisture_convergence']
-
-dom = 'GAL9'
-dom = 'RAL3P2'
-
-###############################################################################
-# dictionary of experiments
-
-if dom == 'RAL3P2':
-    exps = ['CCIv2_RAL3P2','CCIv2_RAL3P2_mod']
-if dom ==  'GAL9':
-    exps = ['CCIv2_GAL9','CCIv2_GAL9_mod']
+doms = ['GAL9','RAL3P2']
 
 ###############################################################################
 
@@ -69,16 +50,21 @@ def get_exp_path(exp, cycle):
 
     return exp_paths[exp]
 
-def plot_rain_diff(ds):
+def plot_rain_diff(ds, coarsen=False):
     '''plots the two experiments and a difference between them'''
 
-    pr = ds.copy()*3600 # convert from m/s to mm/hr
+    # calculate mean mm per day
+    pr_mean = ds.mean(dim='time') * 86400  # convert from kg m-2 s-1 to mm/day
 
-    pr_total = pr.sum(dim='time')
-    pr_total['diff'] = pr_total[exps[1]] - pr_total[exps[0]]
-    pr_total = pr_total.compute()
+    # pr_mean = pr.sum(dim='time')
+    pr_mean['diff'] = pr_mean[exps[1]] - pr_mean[exps[0]]
+    pr_mean = pr_mean.compute()
 
-    # pr_total = pr_total.coarsen({'longitude': 10, 'latitude': 10}, boundary='trim').mean()
+    if coarsen:
+        pr_mean = pr_mean.coarsen({'longitude': 10, 'latitude': 10}, boundary='trim').mean()
+        suffix = '_coarsened'
+    else:
+        suffix = ''
 
     ######
 
@@ -90,13 +76,15 @@ def plot_rain_diff(ds):
 
     for ax, exp in zip(axes.flatten(), exps+['diff']):
         cmap = opts['cmap'] if exp != 'diff' else 'coolwarm'
-        vmin = 0 if exp != 'diff' else -700
-        vmax = 1400 if exp != 'diff' else 700
+        vmin = 0 if exp != 'diff' else -10
+        vmax = 20 if exp != 'diff' else 10
         title = exp if exp != 'diff' else f'{exps[1]} - {exps[0]} difference'
-        cbar_title =  'total precipitation [mm]' if exp != 'diff' else 'difference [mm]'
+        extend = 'both' if vmin < 0 else 'max'
+        cbar_title =  'daily precipitation [mm]' if exp != 'diff' else 'difference [mm]'
+        levels = np.linspace(vmin, vmax, 11)
 
-        im = pr_total[exp].plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax,levels=15,
-                                add_colorbar=False,transform=proj)
+        im = pr_mean[exp].plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax,levels=levels,
+                                extend=extend,add_colorbar=False,transform=proj)
                            
         ax.set_title(title)
 
@@ -117,9 +105,12 @@ def plot_rain_diff(ds):
         cbar.ax.set_xlabel(cbar_title)
         cbar.ax.tick_params(labelsize=7)
 
-    fig.savefig(f'{plotpath}/{opts["plot_fname"]}_diff_{dom}.png', dpi=300, bbox_inches='tight')
+    fname = f'{plotpath}/{opts["plot_fname"]}_diff_{dom}{suffix}.png'
+    print(f'saving figure to {fname}')
 
-def plot_spatial(ds):
+    fig.savefig(fname, dpi=300, bbox_inches='tight')
+
+def plot_spatial(ds, coarsen=False):
     '''plots the two experiments and a difference between them'''
 
     ds_mean = ds.mean(dim='time')
@@ -127,6 +118,12 @@ def plot_spatial(ds):
     ds_mean['diff'] = ds_mean[exps[1]] - ds_mean[exps[0]]
     ds_mean = ds_mean.compute()
 
+    if coarsen:
+        ds_mean = ds_mean.coarsen({'longitude': 10, 'latitude': 10}, boundary='trim').mean()
+        suffix = '_coarsened'
+    else:
+        suffix = ''
+
     ######
 
     proj = ccrs.PlateCarree()
@@ -137,13 +134,15 @@ def plot_spatial(ds):
 
     for ax, exp in zip(axes.flatten(), exps+['diff']):
         cmap = opts['cmap'] if exp != 'diff' else 'coolwarm'
-        vmin = opts['vmin'] if exp != 'diff' else -opts['vmax']/4
-        vmax = opts['vmax'] if exp != 'diff' else opts['vmax']/4
+        vmin = opts['vmin'] if exp != 'diff' else -opts['vmax']/2
+        vmax = opts['vmax'] if exp != 'diff' else opts['vmax']/2
         title = exp if exp != 'diff' else f'{exps[1]} - {exps[0]} difference'
-        cbar_title =  f'mean {opts["plot_title"]} {opts["units"]}' if exp != 'diff' else f'difference {opts["plot_title"]} {opts["units"]}'
+        cbar_title =  f'mean {opts["plot_title"]} [{opts["units"]}]' if exp != 'diff' else f'difference {opts["plot_title"]} [{opts["units"]}]'
+            
+        levels = np.linspace(vmin, vmax, 11)
 
-        im = ds_mean[exp].plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax,levels=16,
-                                add_colorbar=False,transform=proj)
+        im = ds_mean[exp].plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, levels=levels,
+                    extend='both',add_colorbar=False, transform=proj)
                            
         ax.set_title(title)
 
@@ -164,7 +163,12 @@ def plot_spatial(ds):
         cbar.ax.set_xlabel(cbar_title)
         cbar.ax.tick_params(labelsize=7)
 
-    fig.savefig(f'{plotpath}/{opts["plot_fname"]}_diff_{dom}.png', dpi=300, bbox_inches='tight')
+    fname = f'{plotpath}/{opts["plot_fname"]}_diff_{dom}{suffix}.png'
+    print(f'saving figure to {fname}')
+
+    fig.savefig(fname, dpi=300, bbox_inches='tight')
+
+    return
 
 def get_exp_cycles(variable, exp, opts):
     '''gets all cycles for a given experiment and variable, saves netcdf and returns xarray dataset'''
@@ -323,6 +327,7 @@ def custom_cbar(ax,im,cbar_loc='right',ticks=None):
     """
     Create a custom colorbar
     """
+    import matplotlib.ticker as mticker
 
     if cbar_loc == 'right':
         cax = inset_axes(ax,
@@ -333,8 +338,7 @@ def custom_cbar(ax,im,cbar_loc='right',ticks=None):
             bbox_transform=ax.transAxes,
             borderpad=0,
             )
-        cbar = ColorbarBase(cax, cmap=im.cmap, norm = im.norm, ticks = ticks)
-
+        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, ticks=ticks)
     elif cbar_loc == 'far_right':
         cax = inset_axes(ax,
             width='4%',  # % of parent_bbox width
@@ -344,10 +348,9 @@ def custom_cbar(ax,im,cbar_loc='right',ticks=None):
             bbox_transform=ax.transAxes,
             borderpad=0,
             )
-        cbar = ColorbarBase(cax, cmap=im.cmap, norm = im.norm, ticks = ticks)
-    
+        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, ticks=ticks)
     else:
-        cbar_loc == 'bottom'
+        # cbar_loc == 'bottom'
         cax = inset_axes(ax,
             width='100%',  # % of parent_bbox width
             height='4%',
@@ -356,7 +359,12 @@ def custom_cbar(ax,im,cbar_loc='right',ticks=None):
             bbox_transform=ax.transAxes,
             borderpad=0,
             )
-        cbar = ColorbarBase(cax, cmap=im.cmap, norm = im.norm, orientation='horizontal', ticks = ticks)
+        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, orientation='horizontal', ticks=ticks)
+
+    # Set scientific notation for colorbar ticks if needed
+    cbar.formatter = mticker.ScalarFormatter(useMathText=True)
+    cbar.formatter.set_powerlimits((-3, 3))  # Use scientific notation for small/large numbers
+    cbar.update_ticks()
 
     return cbar
 
@@ -402,8 +410,8 @@ def save_netcdf(das, exp, opts):
     data_min = float(ds[varname].min().compute())
     data_max = float(ds[varname].max().compute())
 
-    # If all data between 0 and 1, use scale_factor and add_offset for int16 storage
-    if 0.0 <= data_min and data_max <= 1.0:
+    # If all data between -1 and 1, use scale_factor and add_offset for int16 storage
+    if -1.0 <= data_min and data_max <= 1.0:
         scale_factor = (data_max - data_min) / (np.iinfo(np.int16).max - np.iinfo(np.int16).min)
         if scale_factor == 0:
             scale_factor = 1.0  # avoid division by zero if data is constant
@@ -441,7 +449,6 @@ def save_netcdf(das, exp, opts):
 
     return
 
-
 def calc_moisture_convergence(u,v,q):
     """
     Calculate moisture convergence from zonal and meridional wind components
@@ -476,6 +483,377 @@ def calc_moisture_convergence(u,v,q):
 
     return moisture_convergence
 
+def calc_moisture_convergence_emma(u,v,qfluxu,qfluxv):
+
+    print('Calculating moisture convergence...')
+
+    # Ensure input DataArrays have the same dimensions
+    assert u.shape == v.shape == qfluxu.shape == qfluxv.shape, "Input DataArrays must have the same dimensions."
+
+    r = 6371000
+    dx = r * np.cos(u.latitude * np.pi / 180.0) * np.pi / 180.0
+    dy = r * np.pi / 180.0
+
+    sfcDiv = ( v.differentiate('latitude') / dy 
+             + u.differentiate('longitude') / dx).to_dataset(name='sfcDiv')
+    qDiv = ( qfluxv.differentiate('latitude') / dy 
+           + qfluxu.differentiate('longitude') / dx).to_dataset(name='qDiv')
+
+    # units
+    # convert to mm/day
+    qDiv = qDiv * 86400  # kg/(m^2 s) to mm/day
+    qDiv['qDiv'].attrs['units'] = 'mm/day'
+
+    return sfcDiv, qDiv
+
+def get_variable_opts(variable):
+    '''standard variable options for plotting. to be updated within master script as needed
+    
+    constraint: iris constraint for the variable used to extract data from the cube
+                this can be a long_name, STASH code, or an iris.Constraint() object
+    stash: STASH code for the variable (if available)
+    plot_title: title of the plot (spaces allowed)
+    plot_fname: description used for filename (spaces not allowed)
+    units: units of the variable
+    obs_key: key used to describe the obs data (if available)
+    obs_period: period to resample the obs data to
+    fname: filename of the data file to extract from
+    vmin: minimum value for the colorbar for variable
+    vmax: maximum value for the colorbar for variable
+    cmap: colormap to use for the variable
+    threshold: threshold error statitics/ benchmarks (if defined)
+    fmt: format string for the variable error statistics
+    dtype: data type for saving the variable to netcdf
+    level: level of the variable (e.g. soil level, 0-indexed)
+    '''
+
+    # standard ops
+    opts = {
+        'constraint': variable,
+        'plot_title': variable.replace('_',' '),
+        'plot_fname': variable.replace(' ','_'),
+        'units'     : '?',
+        'obs_key'   : 'None',
+        'obs_period': '1H',
+        'fname'     : 'umnsaa_pvera',
+        'vmin'      : None, 
+        'vmax'      : None,
+        'cmap'      : 'viridis',
+        'threshold' : None,
+        'fmt'       : '{:.2f}',
+        'dtype'     : 'float32'
+        }
+    
+    if variable == 'air_temperature':
+        opts.update({
+            'constraint': 'air_temperature',
+            'plot_title': 'air temperature (1.5 m)',
+            'plot_fname': 'air_temperature_1p5m',
+            'units'     : '°C',
+            'obs_key'   : 'Tair',
+            'fname'     : 'umnsaa_pvera',
+            'vmin'      : 0,
+            'vmax'      : 50,
+            'cmap'      : 'inferno',
+            'threshold' : 2,
+            'fmt'       : '{:.2f}',
+            })
+        
+    if variable == 'upward_air_velocity':
+        opts.update({
+            'constraint': 'upward_air_velocity',
+            'plot_title': 'upward air velocity',
+            'plot_fname': 'upward_air_velocity',
+            'units'     : 'm s-1',
+            'obs_key'   : 'None',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : -1,
+            'vmax'      : 1,
+            'cmap'      : 'turbo',
+            'fmt'       : '{:.2f}',
+            })
+        
+    if variable == 'surface_altitude':
+        opts.update({
+            'constraint': 'surface_altitude',
+            'units'     : 'm',
+            'obs_key'   : 'None',
+            'fname'     : 'umnsaa_pa000',
+            'vmin'      : 0,
+            'vmax'      : 2000,
+            'cmap'      : 'twilight',
+            'dtype'     : 'int16',
+            'fmt'       : '{:.0f}',
+            })
+
+    elif variable == 'specific_humidity':
+        opts.update({
+            'constraint': 'm01s03i237',
+            'plot_title': 'specific humidity (1.5 m)',
+            'plot_fname': 'specific_humidity_1p5m',
+            'units'     : 'kg/kg',
+            'obs_key'   : 'Qair',
+            'fname'     : 'umnsaa_psurfc',
+            'vmin'      : 0.004,
+            'vmax'      : 0.020,
+            'cmap'      : 'turbo_r',
+            'fmt'       : '{:.4f}',
+            })
+
+    elif variable == 'latent_heat_flux':
+        opts.update({
+            'constraint': 'surface_upward_latent_heat_flux',
+            'plot_title': 'Latent heat flux',
+            'plot_fname': 'latent_heat_flux',
+            'units'     : 'W/m2',
+            'obs_key'   : 'Qle',
+            # 'fname'     : 'umnsaa_pvera',
+            'fname'     : 'umnsaa_psurfa',
+            'vmin'      : -100, 
+            'vmax'      : 500,
+            'cmap'      : 'turbo_r',
+            'fmt'       : '{:.1f}',
+            })
+        
+    elif variable == 'sensible_heat_flux':
+        opts.update({
+            'constraint': 'surface_upward_sensible_heat_flux',
+            'plot_title': 'Sensible heat flux',
+            'plot_fname': 'sensible_heat_flux',
+            'units'     : 'W/m2',
+            'obs_key'   : 'Qh',
+            # 'fname'     : 'umnsaa_pvera',
+            'fname'     : 'umnsaa_psurfa',
+            'vmin'      : -100, 
+            'vmax'      : 600,
+            'cmap'      : 'turbo_r',
+            'fmt'       : '{:.1f}',
+            })
+
+    elif variable == 'surface_air_pressure':
+        opts.update({
+            'units'     : 'Pa',
+            'fname'     : 'umnsaa_pvera',
+            'vmin'      : 88000,
+            'vmax'      : 104000,
+            'cmap'      : 'viridis',
+            })
+
+    elif variable == 'wind_speed_of_gust':
+        opts.update({
+            'constraint': 'wind_speed_of_gust',
+            'plot_title': 'wind speed of gust',
+            'plot_fname': 'wind_gust',
+            'units'     : 'm/s',
+            'obs_key'   : 'Wind_gust',
+            'fname'     : 'umnsaa_pvera',
+            'vmin'      : 10,
+            'vmax'      : 40,
+            'cmap'      : 'turbo',
+            'fmt'       : '{:.2f}',
+            })
+
+    elif variable == 'wind_u':
+        opts.update({
+            'constraint': 'm01s03i225',
+            'plot_title': '10 m wind: U-component',
+            'plot_fname': 'wind_u_10m',
+            'units'     : 'm/s',
+            'obs_key'   : 'wind',
+            'fname'     : 'umnsaa_pvera',
+            'vmin'      : 0,
+            'vmax'      : 25,
+            'cmap'      : 'turbo',
+            'threshold' : 2.57,
+            'fmt'       : '{:.2f}',
+            })
+
+    elif variable == 'wind_v':
+        opts.update({
+            'constraint': 'm01s03i226',
+            'plot_title': '10 m wind: V-component',
+            'plot_fname': 'wind_v_10m',
+            'units'     : 'm/s',
+            'obs_key'   : 'wind',
+            'fname'     : 'umnsaa_pvera',
+            'vmin'      : 0,
+            'vmax'      : 25,
+            'cmap'      : 'turbo',
+            'threshold' : 2.57,
+            'fmt'       : '{:.2f}',
+            })
+    
+    elif variable == 'wind_speed':
+        opts.update({
+            'plot_title': '10 m wind speed',
+            'plot_fname': 'wind_speed_10m',
+            'units'     : 'm/s',
+            'obs_key'   : 'wind',
+            'vmin'      : 0,
+            'vmax'      : 10,
+            'cmap'      : 'turbo',
+            'threshold' : 2.57,
+            'fmt'       : '{:.2f}',
+            })
+        
+    elif variable == 'air_pressure_at_sea_level':
+        opts.update({
+            'constraint': 'air_pressure_at_sea_level',
+            'plot_title': 'air pressure at sea level',
+            'plot_fname': 'air_pressure_at_sea_level',
+            'units'     : 'Pa',
+            'obs_key'   : 'SLP',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : 97000,
+            'vmax'      : 103000,
+            'cmap'      : 'viridis',
+            'fmt'       : '{:.1f}',
+            })
+
+    elif variable == 'total_precipitation_rate':
+        opts.update({
+            'constraint': iris.Constraint(
+                name='precipitation_flux',
+                cube_func=lambda cube: iris.coords.CellMethod(
+                    method='mean', coords='time', intervals='1 hour'
+                    ) in cube.cell_methods),
+            'plot_title': 'precipitation rate',
+            'plot_fname': 'total_precipitation_rate',
+            'units'     : 'kg m-2',
+            'obs_key'   : 'precip_last_aws_obs',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : 0,
+            'vmax'      : 100,
+            'cmap'      : 'gist_earth_r',
+            'fmt'       : '{:.5f}',
+            })
+                
+    elif variable == 'convective_rainfall_amount':
+        opts.update({
+            'constraint': iris.Constraint(
+                name='m01s05i201', 
+                cube_func=lambda cube: iris.coords.CellMethod(
+                    method='mean', coords='time', intervals='1 hour'
+                    ) in cube.cell_methods),
+            'plot_title': 'convective rainfall amount',
+            'plot_fname': 'convective_rainfall_amount',
+            'units'     : 'kg m-2',
+            'obs_key'   : 'precip_last_aws_obs',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : 0,
+            'vmax'      : 100,
+            'cmap'      : 'gist_earth_r',
+            'fmt'       : '{:.2f}',
+            })
+        
+    elif variable == 'convective_rainfall_flux':
+        opts.update({
+            'constraint': iris.Constraint(
+                name='m01s05i205', 
+                cube_func=lambda cube: iris.coords.CellMethod(
+                    method='mean', coords='time', intervals='1 hour'
+                    ) in cube.cell_methods),
+            'plot_title': 'convective rainfall flux',
+            'plot_fname': 'convective_rainfall_flux',
+            'units'     : 'kg m-2',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : 0,
+            'vmax'      : 100,
+            'cmap'      : 'gist_earth_r',
+            'fmt'       : '{:.5f}',
+            })
+        
+    elif variable == 'stratiform_rainfall_amount':
+        opts.update({
+            'constraint': iris.Constraint(
+                name='stratiform_rainfall_amount', 
+                cube_func=lambda cube: iris.coords.CellMethod(
+                    method='mean', coords='time', intervals='1 hour'
+                    ) in cube.cell_methods),
+            'units'     : 'kg m-2',
+            'obs_key'   : 'precip_last_aws_obs',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : 0,
+            'vmax'      : 100,
+            'cmap'      : 'gist_earth_r',
+            'fmt'       : '{:.2f}',
+            })
+
+    elif variable == 'stratiform_rainfall_flux':
+        opts.update({
+            'constraint': iris.Constraint(
+                name='stratiform_rainfall_flux', 
+                cube_func=lambda cube: iris.coords.CellMethod(
+                    method='mean', coords='time', intervals='1 hour'
+                    ) in cube.cell_methods),
+            'units'     : 'kg m-2 s-1',
+            'obs_key'   : 'precip_last_aws_obs',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : 0,
+            'vmax'      : 100,
+            'cmap'      : 'gist_earth_r',
+            'fmt'       : '{:.5f}',
+            })
+        
+    elif variable == 'moisture_flux_u':
+        opts.update({
+            'constraint': 'm01s30i462',
+            'units'     : 'kg m-2 s-1',
+            'fname'     : 'umnsaa_psurfc',
+            'vmin'      : None,
+            'vmax'      : 0.0002,
+            'cmap'      : 'cividis',
+            'fmt'       : '{:.6f}',
+            })
+    
+    elif variable == 'moisture_flux_v':
+        opts.update({
+            'constraint': 'm01s30i463',
+            'units'     : 'kg m-2 s-1',
+            'fname'     : 'umnsaa_psurfc',
+            'vmin'      : None,
+            'vmax'      : 0.0002,
+            'cmap'      : 'cividis',
+            'fmt'       : '{:.6f}',
+            })
+
+    elif variable == 'upward_air_velocity_at_300m':
+        opts.update({
+            'constraint': iris.Constraint(name='upward_air_velocity', height=300.),
+            'units'     : 'm s-1',
+            'fname'     : 'umnsaa_pb',
+            'vmin'      : -0.04,
+            'vmax'      : 0.04,
+            'cmap'      : 'bwr',
+            'fmt'       : '{:.2f}',
+            })
+
+    elif variable == 'upward_air_velocity_at_1000m':
+        opts.update({
+            'constraint': iris.Constraint(name='upward_air_velocity', height=1000.),
+            'units'     : 'm s-1',
+            'fname'     : 'umnsaa_pb',
+            'vmin'      : -0.04,
+            'vmax'      : 0.04,
+            'cmap'      : 'bwr',
+            'fmt'       : '{:.2f}',
+            })
+
+
+    elif variable == 'moisture_convergence':
+        opts.update({
+            'vmin'      : -20,
+            'vmax'      : 20,
+            'units'     : 'mm/day',
+            'cmap'      : 'bwr',
+            'fmt'       : '{:.2f}',
+            })
+
+    # add variable to opts
+    opts.update({'variable':variable})
+
+    return opts
+
 if __name__ == "__main__":
 
     print('running variables:',variables)
@@ -491,51 +869,102 @@ if __name__ == "__main__":
             n_workers=n_workers,
             threads_per_worker=1, 
             local_directory = local_directory)
- 
-    for variable in variables:
-        print(f'processing variable: {variable}')
-        opts = cf.get_variable_opts(variable)
-        ds = xr.Dataset()
-        for exp in exps:
-            print(f'processing {exp} {variable}')
-            if variable == 'moisture_convergence':
-                print('special case for moisture convergence')
 
-                # check if netcdf file already exists
-                ncfname = f'{datapath}/{opts["plot_fname"]}/{exp}_{opts["plot_fname"]}.nc'
-                if os.path.exists(ncfname):
-                    print(f'netcdf file {ncfname} already exists, loading')
-                    ds[exp] = xr.open_dataset(ncfname)[variable]
-                    continue
+    for dom in doms:
 
-                u_opts = cf.get_variable_opts('wind_u')
-                v_opts = cf.get_variable_opts('wind_v')
-                q_opts = cf.get_variable_opts('specific_humidity')
+        ###############################################################################
+        
+        if dom == 'RAL3P2':
+            exps = ['CCIv2_RAL3P2','CCIv2_RAL3P2_mod']
+            variables = variables + ['stratiform_rainfall_flux']
+            if 'total_precipitation_rate' in variables:
+                variables.remove('total_precipitation_rate')
+        if dom ==  'GAL9':
+            exps = ['CCIv2_GAL9','CCIv2_GAL9_mod']
+            variables = variables + ['total_precipitation_rate']
+            if 'stratiform_rainfall_flux' in variables:
+                variables.remove('stratiform_rainfall_flux')
 
-                u = get_exp_cycles('wind_u', exp, u_opts)
-                v = get_exp_cycles('wind_v', exp, v_opts)
-                q = get_exp_cycles('specific_humidity', exp, q_opts)
+        ###############################################################################
+    
+        for variable in variables:
+            print(f'processing variable: {variable}')
+            opts = get_variable_opts(variable)
+            ds = xr.Dataset()
+            for exp in exps:
+                print(f'processing {exp} {variable}')
+                if variable == 'moisture_convergence_old':
+                    print('special case for moisture convergence')
 
-                u_interp = u.interp(latitude=q.latitude, longitude=q.longitude, method='linear')
-                v_interp = v.interp(latitude=q.latitude, longitude=q.longitude, method='linear')
+                    # check if netcdf file already exists
+                    ncfname = f'{datapath}/{opts["plot_fname"]}/{exp}_{opts["plot_fname"]}.nc'
+                    if os.path.exists(ncfname):
+                        print(f'netcdf file {ncfname} already exists, loading')
+                        ds[exp] = xr.open_dataset(ncfname)[variable]
+                        continue
 
-                ds[exp] = calc_moisture_convergence(u_interp, v_interp, q)
-                save_netcdf(ds[exp], exp, opts)
-            elif variable == 'wind_speed':
-                print('special case for wind')
+                    u_opts = get_variable_opts('wind_u')
+                    v_opts = get_variable_opts('wind_v')
+                    q_opts = get_variable_opts('specific_humidity')
 
-                u_opts = cf.get_variable_opts('wind_u')
-                v_opts = cf.get_variable_opts('wind_v')
-                u = get_exp_cycles('wind_u', exp, u_opts)
-                v = get_exp_cycles('wind_v', exp, v_opts)
-                ds[exp] = np.sqrt(u**2 + v**2)
-                ds[exp].attrs['units'] = 'm/s'
-                save_netcdf(ds[exp], exp, opts)
+                    u = get_exp_cycles('wind_u', exp, u_opts)
+                    v = get_exp_cycles('wind_v', exp, v_opts)
+                    q = get_exp_cycles('specific_humidity', exp, q_opts)
+
+                    u_interp = u.interp(latitude=q.latitude, longitude=q.longitude, method='linear')
+                    v_interp = v.interp(latitude=q.latitude, longitude=q.longitude, method='linear')
+
+                    ds[exp] = calc_moisture_convergence(u_interp, v_interp, q)
+                    save_netcdf(ds[exp], exp, opts)
+
+                elif variable == 'moisture_convergence':
+                    print('special case for moisture convergence emma')
+
+                    # check if netcdf file already exists
+                    ncfname = f'{datapath}/{opts["plot_fname"]}/{exp}_{opts["plot_fname"]}.nc'
+                    if os.path.exists(ncfname):
+                        print(f'netcdf file {ncfname} already exists, loading')
+                        ds[exp] = xr.open_dataset(ncfname)[variable]
+                        continue
+
+                    u_opts = get_variable_opts('wind_u')
+                    v_opts = get_variable_opts('wind_v')
+                    qfluxu_opts = get_variable_opts('moisture_flux_u')
+                    qfluxv_opts = get_variable_opts('moisture_flux_v')
+
+                    u = get_exp_cycles('wind_u', exp, u_opts)
+                    v = get_exp_cycles('wind_v', exp, v_opts)
+
+                    qfluxu = get_exp_cycles('moisture_flux_u', exp, qfluxu_opts)
+                    qfluxv = get_exp_cycles('moisture_flux_v', exp, qfluxv_opts)
+
+                    u_interp = u.interp(latitude=qfluxu.latitude, longitude=qfluxu.longitude, method='linear')
+                    v_interp = v.interp(latitude=qfluxv.latitude, longitude=qfluxv.longitude, method='linear')
+
+                    sfcDiv, qDiv = calc_moisture_convergence_emma(u_interp, v_interp, qfluxu, qfluxv)
+
+                    ds[exp] = qDiv['qDiv']
+                    save_netcdf(ds[exp], exp, opts)
+                elif variable == 'wind_speed':
+                    print('special case for wind')
+
+                    u_opts = get_variable_opts('wind_u')
+                    v_opts = get_variable_opts('wind_v')
+                    u = get_exp_cycles('wind_u', exp, u_opts)
+                    v = get_exp_cycles('wind_v', exp, v_opts)
+                    ds[exp] = np.sqrt(u**2 + v**2)
+                    ds[exp].attrs['units'] = 'm/s'
+                    save_netcdf(ds[exp], exp, opts)
+
+                else:
+                    # general case for other variables
+                    ds[exp] = get_exp_cycles(variable, exp, opts)
+
+            if variable in ['stratiform_rainfall_flux', 'total_precipitation_rate']:
+                plot_rain_diff(ds, coarsen=False)
+                plot_rain_diff(ds, coarsen=True)
 
             else:
-                # general case for other variables
-                ds[exp] = get_exp_cycles(variable, exp, opts)
-
-        if variable in ['stratiform_rainfall_flux', 'total_precipitation_rate']:
-            plot_rain_diff(ds)
+                plot_spatial(ds, coarsen=False)
+                plot_spatial(ds, coarsen=True)
 

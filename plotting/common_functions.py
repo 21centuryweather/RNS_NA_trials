@@ -989,9 +989,12 @@ def get_variable_opts(variable):
 
     elif variable == 'moisture_convergence':
         opts.update({
-            'units'     : 'kg m-2 s-1',
-            'vmin'      : -0.01,
-            'vmax'      : 0.01,
+            # 'units'     : 'kg m-2 s-1',
+            # 'vmin'      : -0.0004,
+            # 'vmax'      : 0.0004,
+            'vmin'      : -20,
+            'vmax'      : 20,
+            'units'     : 'mm/day',
             'cmap'      : 'bwr',
             'fmt'       : '{:.2f}',
             })
