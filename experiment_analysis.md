@@ -24,7 +24,7 @@ diff rns_ostia_NA/app/um/opt/rose-app-ral3p2.conf rns_ostia_NA/app/um/opt/rose-a
 ```
 
 [Code for producing figures](plotting/plot_pp.py)  
-[Experiment MOSRS repository](https://code.metoffice.gov.uk/svn/roses-u/d/g/7/6/8/rns_ostia_NA@322462)
+[Experiment MOSRS repository](https://code.metoffice.gov.uk/trac/roses-u/browser/d/g/7/6/8/rns_ostia_NA)
 
 ## Domains
 
