@@ -23,7 +23,7 @@ Assess how monsoon rainfall is affected by changes in surface roughness.
 
 # Domains
 
-![Sydney domains](ancils/figures/NA_domains_surface_altitude.png)
+![NA domains](ancils/figures/NA_domains_surface_altitude.png)
 
 Code to plot: [ancils/plot_domains.py](ancils/plot_domains.py).
 
@@ -36,5 +36,11 @@ svn co https://code.metoffice.gov.uk/svn/roses-u/d/g/7/6/8/rns_ostia_NA
 cd rns_ostia_NA
 rose suite-run
 ```
+
+## Analysis
+
+1. [Rainfall, wind speed, moisture convergence](experiment_analysis.md)
+
+
 
 
