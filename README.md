@@ -27,6 +27,11 @@ Assess how monsoon rainfall is affected by changes in surface roughness.
 
 Code to plot: [ancils/plot_domains.py](ancils/plot_domains.py).
 
+# Compute
+
+All tasks, including 2 experiments: 735 SU / day or ~66 KSU for 3 months
+1 x RAL3p2 forecast task: 240 SU / day or ~22 KSU
+
 ## Instructions to run:
 
 See [ancils README](ancils/README.md) if they need creation, then to run experiments:
