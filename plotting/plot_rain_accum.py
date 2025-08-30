@@ -12,14 +12,21 @@ Date: 2025-08-30
 import os
 import xarray as xr
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend to save memory
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.colorbar import ColorbarBase
 from matplotlib.colors import LinearSegmentedColormap
 import glob
+import gc
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
+
+# Configure matplotlib for memory efficiency
+plt.ioff()  # Turn off interactive mode
+matplotlib.rcParams['figure.max_open_warning'] = 0  # Disable figure limit warnings
 
 ##############################################################################
 # Configuration
@@ -134,6 +141,7 @@ def custom_cbar(ax, im, cbar_loc='right', ticks=None):
             borderpad=0,
             )
         cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, ticks=ticks)
+        cbar.ax.yaxis.set_label_position('left')  # Position label on the left side
     elif cbar_loc == 'far_right':
         cax = inset_axes(ax,
             width='4%',  # % of parent_bbox width
@@ -144,6 +152,7 @@ def custom_cbar(ax, im, cbar_loc='right', ticks=None):
             borderpad=0,
             )
         cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, ticks=ticks)
+        cbar.ax.yaxis.set_label_position('left')  # Position label on the left side
     else:
         # cbar_loc == 'bottom'
         cax = inset_axes(ax,
@@ -206,7 +215,7 @@ def get_variable_opts(variable):
             'plot_fname': 'total_precipitation_rate',
             'units': 'mm/hour',
             'vmin': 0,
-            'vmax': 30,  # 0.01 kg m-2 s-1 * 3600 = 30 mm/hour
+            'vmax': 20,  # 0.01 kg m-2 s-1 * 3600 = 30 mm/hour
             'cmap': 'Blues',
         })
                 
@@ -216,7 +225,7 @@ def get_variable_opts(variable):
             'plot_fname': 'stratiform_rainfall_flux', 
             'units': 'mm/hour',
             'vmin': 0,
-            'vmax': 30,  # 0.01 kg m-2 s-1 * 3600 = 30 mm/hour
+            'vmax': 20,  # 0.01 kg m-2 s-1 * 3600 = 30 mm/hour
             'cmap': 'Blues',
         })
 
@@ -276,6 +285,11 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
     diff_data = ds_cumsum.sel(experiment='diff').isel(time=time_index)
     diff_total = ds_cumsum.sel(experiment='diff').isel(time=-1)
     diff_max = abs(diff_total).max().values
+    
+    # Calculate consistent cumulative colorbar max for both experiments
+    cumsum_max_all = max([ds_cumsum.sel(experiment=exp).isel(time=-1).max().values for exp in exp_list])
+    cumsum_vmax = np.floor(cumsum_max_all / 1000) * 1000  # Round down to nearest 1000
+    cumsum_vmax = 1000  # hardcode for now
 
     # Set up the plot - always 3 panels (exp1, exp2, diff)
     proj = ccrs.PlateCarree()
@@ -293,29 +307,60 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
             n_levels = 21
             cmap = create_white_center_cmap(n_levels, cmap='RdBu')  # Custom colormap with white center
             # Round diff_max up to nearest ten for symmetric colorbar
-            vlim = np.ceil(diff_max / 10) * 10
+            vlim = np.floor(diff_max / 10) * 10
             vlim = 500 # hardcode to 500 for now
             vmin = -vlim
             vmax = vlim
             title = f'{exp_list[1]} - {exp_list[0]} cumulative difference\n{time_str}'
-            cbar_title = f'cumulative difference {opts["plot_title"]} [{opts["units"]}]'
+            cbar_title = f'cumulative {" ".join(opts["plot_title"].split()[:-1])} difference [mm]'
             # Create symmetric levels around zero
             levels = np.linspace(vmin, vmax, n_levels)
-        else:
-            # Plot experiment data
-            data_to_plot = ds_frame.sel(experiment=plot_exp)
-            cmap = opts['cmap']
-            vmin = opts['vmin']
-            vmax = opts['vmax']
-            title = f'{plot_exp} at {time_str}'
-            levels = np.linspace(vmin, vmax, 16)
-            cbar_title = f'{opts["plot_title"]} [{opts["units"]}]'
             
-            # For precipitation plots, mask zero values to show as white
-            data_to_plot = data_to_plot.where(data_to_plot > 0)
+            
+            im = data_to_plot.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, levels=levels,
+                        extend='both', add_colorbar=False, transform=proj)
+                        
+            # Add colorbar for difference plot
+            cbar = custom_cbar(ax, im, cbar_loc='bottom')
+            cbar.ax.set_xlabel(cbar_title, fontsize=8)
+            cbar.ax.tick_params(labelsize=7)
+        else:
+            # Plot both instantaneous and cumulative precipitation on the same panel
+            
+            # 1. Plot instantaneous precipitation (Blues) - background layer
+            instant_data = ds_frame.sel(experiment=plot_exp)
+            instant_data = instant_data.where(instant_data > 0)  # Mask zero values
+            levels = 21
+            instant_levels = np.linspace(opts['vmin'], opts['vmax'], levels)
+            instant_levels = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                              1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 22]
 
-        im = data_to_plot.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, levels=levels,
-                    extend='both', add_colorbar=False, transform=proj)
+            im1 = instant_data.plot(ax=ax, cmap=opts['cmap'], vmin=opts['vmin'], vmax=opts['vmax'], 
+                        levels=instant_levels, extend='max', add_colorbar=False, 
+                        transform=proj, alpha=0.7)
+            
+            # 2. Plot cumulative precipitation (Purples) - overlay
+            cumsum_data = ds_cumsum.sel(experiment=plot_exp).isel(time=time_index)
+            cumsum_data = cumsum_data.where(cumsum_data > 0)  # Mask zero values
+            
+            # Use consistent cumulative colormap range across experiments
+            cumsum_levels = np.linspace(0, cumsum_vmax, levels)
+            
+            im2 = cumsum_data.plot(ax=ax, cmap='Purples', vmin=0, vmax=cumsum_vmax, 
+                        levels=cumsum_levels, extend='max', add_colorbar=False, 
+                        transform=proj, alpha=0.6)
+            
+            title = f'{plot_exp}\n{time_str}'
+            
+            # Add dual colorbars with reduced padding
+            cbar1 = custom_cbar(ax, im1, cbar_loc='bottom')
+            cbar1.ax.set_xlabel(f'instantaneous {opts["plot_title"]} [{opts["units"]}]', fontsize=7)
+            cbar1.ax.tick_params(labelsize=6)
+            
+            cbar2 = custom_cbar(ax, im2, cbar_loc='right')
+            cbar_title = f'cumulative {" ".join(opts["plot_title"].split()[:-1])} [mm]'
+            cbar2.ax.set_ylabel(cbar_title, fontsize=7, rotation=90, labelpad=3)
+            cbar2.ax.tick_params(labelsize=6)
                            
         ax.set_title(title, fontsize=10)
 
@@ -331,117 +376,19 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
         ax.set_ylabel('')
         ax.set_xlabel('')
         ax.tick_params(axis='y', labelleft=subplotspec.is_first_col(), labelright=False, labelsize=7)
-        ax.tick_params(axis='x', labelbottom=subplotspec.is_last_row(), labeltop=False, labelsize=7) 
-
-        # Add colorbar
-        cbar = custom_cbar(ax, im, cbar_loc='bottom')
-        cbar.ax.set_xlabel(cbar_title, fontsize=8)
-        cbar.ax.tick_params(labelsize=7)
+        ax.tick_params(axis='x', labelbottom=subplotspec.is_last_row(), labeltop=False, labelsize=7)
 
     # Save figure
     time_suffix = f'_t{time_index:05d}' if 'time' in ds.dims else ''
     fname = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}{time_suffix}{suffix}.png'
     print(f'Saving figure to {fname}')
 
-    fig.savefig(fname, dpi=300, bbox_inches='tight')
-
-    return fname
-
-def plot_time_mean(ds, opts, dom, suffix=''):
-    """
-    Plot time-averaged precipitation data
-    """
-    # Calculate time mean
-    if 'time' in ds.dims:
-        ds_mean = ds.mean(dim='time')
-    else:
-        ds_mean = ds
-        
-    ds_mean = ds_mean.compute()
-
-    # Calculate difference
-    exp_list = exps[dom]
-    if len(exp_list) == 2:
-        diff_data = ds_mean.sel(experiment=exp_list[1]) - ds_mean.sel(experiment=exp_list[0])
-        diff_max = abs(diff_data).max().values
-        has_diff = True
-    else:
-        has_diff = False
-
-    # Set up the plot
-    proj = ccrs.PlateCarree()
-    plt.close('all')
+    fig.savefig(fname, dpi=200, bbox_inches='tight')
     
-    if has_diff:
-        fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(18, 6),
-                                sharex=True, sharey=True,
-                                subplot_kw={'projection': proj})
-        plot_list = exp_list + ['diff']
-    else:
-        fig, axes = plt.subplots(nrows=1, ncols=len(exp_list), figsize=(6*len(exp_list), 6),
-                                sharex=True, sharey=True,
-                                subplot_kw={'projection': proj})
-        if len(exp_list) == 1:
-            axes = [axes]
-        plot_list = exp_list
-
-    for ax, plot_exp in zip(axes, plot_list):
-        if plot_exp == 'diff' and has_diff:
-            # Plot difference
-            data_to_plot = diff_data
-            n_levels = 21
-            cmap = create_white_center_cmap(n_levels)  # Custom colormap with white center
-            vmin = -diff_max
-            vmax = diff_max
-            title = f'{exp_list[1]} - {exp_list[0]} difference (time mean)'
-            # Create symmetric levels around zero
-            levels = np.linspace(vmin, vmax, n_levels)
-            cbar_title = f'difference {opts["plot_title"]} [{opts["units"]}]'
-        else:
-            # Plot experiment data
-            data_to_plot = ds_mean.sel(experiment=plot_exp)
-            cmap = opts['cmap']
-            vmin = opts['vmin']
-            vmax = opts['vmax']
-            title = f'{plot_exp} (time mean)'
-            cbar_title = f'mean {opts["plot_title"]} [{opts["units"]}]'
-
-        # For precipitation plots, mask zero values to show as white
-        if plot_exp != 'diff':
-            data_to_plot = data_to_plot.where(data_to_plot > 0)
-
-        levels = np.linspace(vmin, vmax, 21)
-
-        im = data_to_plot.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, levels=levels,
-                    extend='both', add_colorbar=False, transform=proj)
-                           
-        ax.set_title(title, fontsize=10)
-
-        # Add coastlines and set extent
-        ax.xaxis.set_visible(True)
-        ax.yaxis.set_visible(True)
-        ax.coastlines(resolution='10m', color='0.1', linewidth=1, zorder=5)
-        left, bottom, right, top = get_bounds(ds_mean)
-        ax.set_extent([left, right, bottom, top], crs=proj)
-
-        # Set labels and ticks
-        subplotspec = ax.get_subplotspec()
-        ax.set_ylabel('')
-        ax.set_xlabel('')
-        ax.tick_params(axis='y', labelleft=subplotspec.is_first_col(), labelright=False, labelsize=7)
-        ax.tick_params(axis='x', labelbottom=subplotspec.is_last_row(), labeltop=False, labelsize=7) 
-
-        # Add colorbar
-        cbar = custom_cbar(ax, im, cbar_loc='bottom')
-        cbar.ax.set_xlabel(cbar_title, fontsize=8)
-        cbar.ax.tick_params(labelsize=7)
-
-    # Save figure
-    fname = f'{plotpath}/{opts["plot_fname"]}_time_mean_{dom}{suffix}.png'
-    print(f'Saving figure to {fname}')
-
-    fig.savefig(fname, dpi=300, bbox_inches='tight')
-    plt.close()
+    # Explicit memory cleanup
+    plt.close(fig)
+    plt.clf()
+    plt.cla()
 
     return fname
 
@@ -494,29 +441,45 @@ def main():
         print("  Adding difference experiment...")
         diff_data = ds.sel(experiment=exp_list[1]) - ds.sel(experiment=exp_list[0])
         diff_data = diff_data.expand_dims('experiment').assign_coords(experiment=['diff'])
-        ds = xr.concat([ds, diff_data], dim='experiment')
+        ds = xr.concat([ds, diff_data], dim='experiment').compute()
         
         # Pre-calculate cumulative sum for all experiments (including diff)
         print("  Pre-calculating cumulative sums...")
-        ds_cumsum = ds.cumsum(dim='time')
+        ds_cumsum = ds.cumsum(dim='time').compute()
         
+        # n_frames = 20  # Plot first 20 time steps as test
         n_frames = ds.time.size
-        n_frames = 5  # Plot first 10 time steps
+        print(f"  Total number of frames: {n_frames}")
         for i in range(n_frames):
+            # Check if figure already exists
+            time_suffix = f'_t{i:05d}' if 'time' in ds.dims else ''
+            fname = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}{time_suffix}.png'
+            
+            if os.path.exists(fname):
+                print(f"    Frame {i} already exists, skipping...")
+                continue
+                
             print(f"    Plotting time index {i}...")
             plot_precipitation_single_frame(ds, opts, dom, i, ds_cumsum)
+            
+            # Force garbage collection every 100 frames to manage memory
+            if (i + 1) % 100 == 0:
+                gc.collect()
+                print(f"    Memory cleanup at frame {i + 1}")
         
         # Create MP4 animation from the frame files
         print("  Creating MP4 animation...")
         frame_pattern = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}_t*.png'
         mp4_output = f'{plotpath}/{opts["plot_fname"]}_animation_{dom}'
-        make_mp4(frame_pattern, mp4_output, fps=24, quality=23)
+        make_mp4(frame_pattern, mp4_output, fps=36, quality=35)
 
         # now delete png files that were used to make the movie
-        for i in range(n_frames):
-            png_file = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}_t{i}.png'
+        png_pattern = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}_t*.png'
+        png_files = glob.glob(png_pattern)
+        for png_file in png_files:
             if os.path.exists(png_file):
                 os.remove(png_file)
+                print(f"Deleted {png_file}")
 
         print(f"  Completed plotting for domain {dom}")
 
