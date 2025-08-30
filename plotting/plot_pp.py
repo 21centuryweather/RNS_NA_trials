@@ -26,10 +26,11 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 ##############################################################################
 
 oshome=os.getenv('HOME')
-cylc_id = 'rns_ostia_NA'
+cylc_id = 'rns_ostia_NA_2015'
 cycle_path = f'/scratch/fy29/mjl561/cylc-run/{cylc_id}/share/cycle'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
 plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
+overwrite_nc = True
 
 variables = ['wind_speed','moisture_convergence','upward_air_velocity_at_300m','upward_air_velocity_at_1000m']
 variables = ['total_precipitation_rate']
@@ -41,7 +42,6 @@ variables = ['wind_quiver']
 variables = ['surface_roughness_length']
 variables = ['boundary_layer_depth']
 variables = ['convective_rainfall_flux']
-variables = ['stratiform_rainfall_flux']
 variables = ['precip_w_cross_correlation']
 variables = ['upward_air_velocity_3d']
 variables = ['wet_bulb_potential_temperature_3d']
@@ -52,10 +52,11 @@ variables = ['geopotential_height_3d']
 variables = ['relative_humidity_3d']
 variables = ['air_temperature_3d']
 variables = ['moist_static_energy_3d']
+variables = ['stratiform_rainfall_flux','total_precipitation_rate']
 
+doms = ['RAL3P2']
 doms = ['GAL9']
 doms = ['GAL9','RAL3P2']
-doms = ['RAL3P2']
 
 ###############################################################################
 
@@ -133,13 +134,13 @@ def plot_rain_diff(ds, coarsen=False, suffix=''):
                             subplot_kw={'projection': proj})
 
     pr_max = pr_mean.to_array().max().compute().values
-    pr_vmax = int(round(pr_max*0.005, -2))
+    pr_vmax = int(np.round(pr_max / 200) * 200)
     pr_vmax = 100 if pr_vmax == 0 else pr_vmax
 
     for ax, exp in zip(axes.flatten(), exps+['diff']):
         cmap = opts['cmap'] if exp != 'diff' else 'coolwarm_r'
-        vmin = 0 if exp != 'diff'  else -pr_vmax/2
-        vmax = pr_vmax if exp != 'diff' else pr_vmax/2
+        vmin = 0 if exp != 'diff'  else -pr_vmax/5
+        vmax = pr_vmax if exp != 'diff' else pr_vmax/5
         title = exp if exp != 'diff' else f'{exps[1]} - {exps[0]} difference'
         extend = 'both' if vmin < 0 else 'max'
         cbar_title =  'total precipitation [mm]' if exp != 'diff' else 'difference [mm]'
@@ -316,12 +317,27 @@ def calc_cross_correlation(var1, var2):
     
     return correlation
 
+# Cache for loaded data to avoid repeated loading
+data_cache = {}
+
+def get_cached_data(variable, exp, opts):
+    """Get data with caching to avoid repeated loads"""
+    cache_key = f"{variable}_{exp}_{opts['plot_fname']}"
+    
+    if cache_key not in data_cache:
+        print(f"Loading {cache_key} (not in cache)")
+        data_cache[cache_key] = get_exp_cycles(variable, exp, opts)
+    else:
+        print(f"Using cached {cache_key}")
+    
+    return data_cache[cache_key]
+
 def get_exp_cycles(variable, exp, opts):
     '''gets all cycles for a given experiment and variable, saves netcdf and returns xarray dataset'''
 
     # first check if a netcdf file has already been created
     ncfname = f'{datapath}/{opts["plot_fname"]}/{exp}_{opts["plot_fname"]}.nc'
-    if os.path.exists(ncfname):
+    if os.path.exists(ncfname) and not overwrite_nc:
         print(f'netcdf file {ncfname} already exists, loading')
         ds = xr.open_dataset(ncfname)
         varname = list(ds.data_vars)[0]  # get the first variable name
@@ -1416,6 +1432,9 @@ if __name__ == "__main__":
             threads_per_worker=1, 
             local_directory = local_directory)
 
+    # make plotpath if it doesn't exist
+    os.makedirs(plotpath, exist_ok=True)
+
     for dom in doms:
 
         ###############################################################################
@@ -1428,8 +1447,41 @@ if __name__ == "__main__":
         ###############################################################################
     
         for variable in variables:
+            if ((dom == 'RAL3P2') and (variable == 'total_precipitation_rate') or
+                    (dom == 'GAL9') and (variable == 'stratiform_rainfall_flux')):
+                print('skipping')
+                continue
+                
             print(f'processing variable: {variable}')
             opts = get_variable_opts(variable)
+            
+            # Determine required variables for this computation
+            if variable == 'moisture_convergence_old':
+                required_vars = ['wind_u', 'wind_v', 'specific_humidity']
+            elif variable == 'moisture_convergence_emma':
+                required_vars = ['wind_u', 'wind_v', 'moisture_flux_u', 'moisture_flux_v']
+            elif variable == 'moist_static_energy_3d':
+                required_vars = ['air_temperature_3d', 'relative_humidity_3d', 'geopotential_height_3d']
+            elif variable == 'wind_speed':
+                required_vars = ['wind_u', 'wind_v']
+            elif variable == 'wind_quiver':
+                required_vars = ['wind_u', 'wind_v']
+            elif variable == 'precip_w_cross_correlation':
+                required_vars = ['stratiform_rainfall_flux', 'upward_air_velocity_3d']
+            else:
+                required_vars = [variable]
+            
+            print(f'Required variables: {required_vars}')
+            
+            # PRE-LOAD ALL REQUIRED DATA FOR THIS VARIABLE
+            cached_data = {}
+            for exp in exps:
+                cached_data[exp] = {}
+                for req_var in required_vars:
+                    req_opts = get_variable_opts(req_var)
+                    cached_data[exp][req_var] = get_cached_data(req_var, exp, req_opts)
+            
+            print('All required data loaded/cached')
 
             ds = xr.Dataset()
             ################################
@@ -1439,23 +1491,21 @@ if __name__ == "__main__":
                 
             for exp in exps:
                 print(f'processing {exp} {variable}')
+                
                 if variable == 'moisture_convergence_old':
                     print('special case for moisture convergence')
 
                     # check if netcdf file already exists
                     ncfname = f'{datapath}/{opts["plot_fname"]}/{exp}_{opts["plot_fname"]}.nc'
-                    if os.path.exists(ncfname):
+                    if os.path.exists(ncfname) and not overwrite_nc:
                         print(f'netcdf file {ncfname} already exists, loading')
                         ds[exp] = xr.open_dataset(ncfname)[variable]
                         continue
 
-                    u_opts = get_variable_opts('wind_u')
-                    v_opts = get_variable_opts('wind_v')
-                    q_opts = get_variable_opts('specific_humidity')
-
-                    u = get_exp_cycles('wind_u', exp, u_opts)
-                    v = get_exp_cycles('wind_v', exp, v_opts)
-                    q = get_exp_cycles('specific_humidity', exp, q_opts)
+                    # Use cached data instead of reloading
+                    u = cached_data[exp]['wind_u']
+                    v = cached_data[exp]['wind_v']
+                    q = cached_data[exp]['specific_humidity']
 
                     u_interp = u.interp(latitude=q.latitude, longitude=q.longitude, method='linear')
                     v_interp = v.interp(latitude=q.latitude, longitude=q.longitude, method='linear')
@@ -1468,16 +1518,15 @@ if __name__ == "__main__":
 
                     # check if netcdf file already exists
                     ncfname = f'{datapath}/{opts["plot_fname"]}/{exp}_{opts["plot_fname"]}.nc'
-                    if os.path.exists(ncfname):
+                    if os.path.exists(ncfname) and not overwrite_nc:
                         print(f'netcdf file {ncfname} already exists, loading')
                         ds[exp] = xr.open_dataset(ncfname)[variable]
                     else:
-
-                        u = get_exp_cycles('wind_u', exp, opts=get_variable_opts('wind_u'))
-                        v = get_exp_cycles('wind_v', exp, opts=get_variable_opts('wind_v'))
-
-                        qfluxu = get_exp_cycles('moisture_flux_u', exp, opts=get_variable_opts('moisture_flux_u'))
-                        qfluxv = get_exp_cycles('moisture_flux_v', exp, opts=get_variable_opts('moisture_flux_v'))
+                        # Use cached data instead of reloading
+                        u = cached_data[exp]['wind_u']
+                        v = cached_data[exp]['wind_v']
+                        qfluxu = cached_data[exp]['moisture_flux_u']
+                        qfluxv = cached_data[exp]['moisture_flux_v']
 
                         u_interp = u.interp(latitude=qfluxu.latitude, longitude=qfluxu.longitude, method='linear')
                         v_interp = v.interp(latitude=qfluxv.latitude, longitude=qfluxv.longitude, method='linear')
@@ -1488,59 +1537,56 @@ if __name__ == "__main__":
                         save_netcdf(ds[exp], exp, opts)
 
                 elif variable == 'moist_static_energy_3d':
-                    print('special case for moisture static energy 3d')
+                    print('special case for moist static energy 3d')
 
                     # check if netcdf file already exists
                     ncfname = f'{datapath}/{opts["plot_fname"]}/{exp}_{opts["plot_fname"]}.nc'
-                    if os.path.exists(ncfname):
+                    if os.path.exists(ncfname) and not overwrite_nc:
                         print(f'netcdf file {ncfname} already exists, loading')
                         ds[exp] = xr.open_dataset(ncfname)[variable]
                     else:
-                        # get 3d air temperature
-                        t3d = get_exp_cycles('air_temperature_3d', exp, opts=get_variable_opts('air_temperature_3d'))
-                        # get 3d relative humidity
-                        rh3d = get_exp_cycles('relative_humidity_3d', exp, opts=get_variable_opts('relative_humidity_3d'))
-                        # get 3d geopotential height
-                        z3d = get_exp_cycles('geopotential_height_3d', exp, opts=get_variable_opts('geopotential_height_3d'))
+                        # Use cached data instead of reloading
+                        t3d = cached_data[exp]['air_temperature_3d']
+                        rh3d = cached_data[exp]['relative_humidity_3d']
+                        z3d = cached_data[exp]['geopotential_height_3d']
 
                         ds[exp] = calc_moist_static_energy(t3d, rh3d, z3d)
                         save_netcdf(ds[exp], exp, opts)
 
                 elif variable == 'wind_speed':
-                    print('special case for wind')
+                    print('special case for wind speed')
 
-                    u = get_exp_cycles('wind_u', exp, opts = get_variable_opts('wind_u'))
-                    v = get_exp_cycles('wind_v', exp, opts = get_variable_opts('wind_v'))
+                    # Use cached data instead of reloading
+                    u = cached_data[exp]['wind_u']
+                    v = cached_data[exp]['wind_v']
                     ds[exp] = np.sqrt(u**2 + v**2)
                     ds[exp].attrs['units'] = 'm/s'
                     save_netcdf(ds[exp], exp, opts)
 
                 elif variable == 'wind_quiver':
-
                     print('special case for wind quiver')
                     
-                    u[exp] = get_exp_cycles('wind_u', exp, opts = get_variable_opts('wind_u'))
-                    v[exp] = get_exp_cycles('wind_v', exp, opts = get_variable_opts('wind_v'))
+                    # Use cached data instead of reloading
+                    u[exp] = cached_data[exp]['wind_u']
+                    v[exp] = cached_data[exp]['wind_v']
 
                 elif variable == 'precip_w_cross_correlation':
                     print('special case for precipitation-vertical wind cross-correlation')
                     
-                    # Get precipitation data
-                    precip_opts = get_variable_opts('stratiform_rainfall_flux')
-                    precip = get_exp_cycles('stratiform_rainfall_flux', exp, precip_opts)
+                    # Use cached data instead of reloading
+                    precip = cached_data[exp]['stratiform_rainfall_flux']
+                    w_3d = cached_data[exp]['upward_air_velocity_3d']
                     
                     # Get vertical wind at level
-                    upward_variable_str = 'upward_air_velocity_3d'
                     level = 850
-                    w_opts = get_variable_opts(upward_variable_str)
-                    w_height = get_exp_cycles(upward_variable_str, exp, w_opts).sel(pressure=level)
+                    w_height = w_3d.sel(pressure=level)
 
                     # Calculate cross-correlation
                     ds[exp] = calc_cross_correlation(precip, w_height)
 
                 else:
-                    # general case for other variables
-                    ds[exp] = get_exp_cycles(variable, exp, opts)
+                    # general case for other variables - use cached data
+                    ds[exp] = cached_data[exp][variable]
 
             # ds_500 = ds.sel(pressure=500)
             # opts_500 = opts.copy()
@@ -1565,12 +1611,12 @@ if __name__ == "__main__":
                     plot_rain_diff(ds, coarsen=True, suffix='_coarsened')
                     plot_cumsum(ds, opts)
 
-                    plot_hours = None
-                    plot_hours = [0,3,6,9,12,15,18,21]
-                    if plot_hours is not None:
-                        for hour in plot_hours:
-                            plot_rain_diff(ds.sel(time=ds.time.dt.hour==hour), coarsen=False, suffix=f'_hour_{hour}')
-                            plot_rain_diff(ds.sel(time=ds.time.dt.hour==hour), coarsen=True, suffix=f'_coarsened_hour_{hour}')
+                    # plot_hours = None
+                    # plot_hours = [0,3,6,9,12,15,18,21]
+                    # if plot_hours is not None:
+                    #     for hour in plot_hours:
+                    #         plot_rain_diff(ds.sel(time=ds.time.dt.hour==hour), coarsen=False, suffix=f'_hour_{hour}')
+                    #         plot_rain_diff(ds.sel(time=ds.time.dt.hour==hour), coarsen=True, suffix=f'_coarsened_hour_{hour}')
                     
             elif variable == 'wind_quiver':
                 print('plotting wind quiver')
@@ -1606,8 +1652,12 @@ if __name__ == "__main__":
 
 
 
-            # da = ds['CCIv2_GAL9'].mean(dim=['latitude','longitude']).compute()
+    # Clear cache at the end of each domain to free up memory
+    data_cache.clear()
+    print(f"Cleared cache after processing domain {dom}")
 
-            # # calculate diurnal cycle
-            # diurnal = da.groupby('time.time').mean(dim='time')
+    # da = ds['CCIv2_GAL9'].mean(dim=['latitude','longitude']).compute()
+
+    # # calculate diurnal cycle
+    # diurnal = da.groupby('time.time').mean(dim='time')
 
