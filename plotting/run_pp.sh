@@ -12,4 +12,4 @@ module purge
 module use /g/data/xp65/public/modules
 module load conda/analysis3
 
-python /home/561/mjl561/git/RNS_NA_trials/plotting/plot_rain_accum_single.py
+python /home/561/mjl561/git/RNS_NA_trials/plotting/plot_pp.py

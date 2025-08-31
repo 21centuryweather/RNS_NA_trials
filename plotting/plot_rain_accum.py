@@ -24,17 +24,13 @@ import gc
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# Configure matplotlib for memory efficiency
-plt.ioff()  # Turn off interactive mode
-matplotlib.rcParams['figure.max_open_warning'] = 0  # Disable figure limit warnings
-
 ##############################################################################
 # Configuration
 ##############################################################################
 
 # Paths
 oshome = os.getenv('HOME')
-cylc_id = 'rns_ostia_NA'
+cylc_id = 'rns_ostia_NA_2016'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
 plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
 
@@ -140,7 +136,7 @@ def custom_cbar(ax, im, cbar_loc='right', ticks=None):
             bbox_transform=ax.transAxes,
             borderpad=0,
             )
-        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, ticks=ticks)
+        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm)
         cbar.ax.yaxis.set_label_position('left')  # Position label on the left side
     elif cbar_loc == 'far_right':
         cax = inset_axes(ax,
@@ -151,7 +147,7 @@ def custom_cbar(ax, im, cbar_loc='right', ticks=None):
             bbox_transform=ax.transAxes,
             borderpad=0,
             )
-        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, ticks=ticks)
+        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm)
         cbar.ax.yaxis.set_label_position('left')  # Position label on the left side
     else:
         # cbar_loc == 'bottom'
@@ -163,7 +159,11 @@ def custom_cbar(ax, im, cbar_loc='right', ticks=None):
             bbox_transform=ax.transAxes,
             borderpad=0,
             )
-        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, orientation='horizontal', ticks=ticks)
+        cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, orientation='horizontal')
+
+    # Set custom ticks if provided
+    if ticks is not None:
+        cbar.set_ticks(ticks)
 
     # Set scientific notation for colorbar ticks if needed
     cbar.formatter = mticker.ScalarFormatter(useMathText=True)
@@ -289,7 +289,7 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
     # Calculate consistent cumulative colorbar max for both experiments
     cumsum_max_all = max([ds_cumsum.sel(experiment=exp).isel(time=-1).max().values for exp in exp_list])
     cumsum_vmax = np.floor(cumsum_max_all / 1000) * 1000  # Round down to nearest 1000
-    cumsum_vmax = 1000  # hardcode for now
+    cumsum_vmax = 1500  # hardcode for now
 
     # Set up the plot - always 3 panels (exp1, exp2, diff)
     proj = ccrs.PlateCarree()
@@ -316,12 +316,14 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
             # Create symmetric levels around zero
             levels = np.linspace(vmin, vmax, n_levels)
             
+            # Define custom tick locations (every 2nd level)
+            diff_ticks = levels[::2]  # Every 2nd level
             
             im = data_to_plot.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, levels=levels,
                         extend='both', add_colorbar=False, transform=proj)
                         
-            # Add colorbar for difference plot
-            cbar = custom_cbar(ax, im, cbar_loc='bottom')
+            # Add colorbar for difference plot with explicit ticks
+            cbar = custom_cbar(ax, im, cbar_loc='bottom', ticks=diff_ticks)
             cbar.ax.set_xlabel(cbar_title, fontsize=8)
             cbar.ax.tick_params(labelsize=7)
         else:
@@ -330,34 +332,38 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
             # 1. Plot instantaneous precipitation (Blues) - background layer
             instant_data = ds_frame.sel(experiment=plot_exp)
             instant_data = instant_data.where(instant_data > 0)  # Mask zero values
-            levels = 21
-            instant_levels = np.linspace(opts['vmin'], opts['vmax'], levels)
-            instant_levels = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-                              1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+            
+            # Define better instant precipitation levels
+            instant_levels = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
+                             0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
             im1 = instant_data.plot(ax=ax, cmap=opts['cmap'], vmin=opts['vmin'], vmax=opts['vmax'], 
                         levels=instant_levels, extend='max', add_colorbar=False, 
-                        transform=proj, alpha=0.7)
+                        transform=proj, alpha=1)
             
             # 2. Plot cumulative precipitation (Purples) - overlay
             cumsum_data = ds_cumsum.sel(experiment=plot_exp).isel(time=time_index)
             cumsum_data = cumsum_data.where(cumsum_data > 0)  # Mask zero values
             
             # Use consistent cumulative colormap range across experiments
-            cumsum_levels = np.linspace(0, cumsum_vmax, levels)
+            cumsum_levels = np.linspace(0, cumsum_vmax, 21)
+            
+            # Define custom tick locations (every 2nd level)
+            instant_ticks = instant_levels[::2]  # Every 2nd level
+            cumsum_ticks = cumsum_levels[::2]    # Every 2nd level
             
             im2 = cumsum_data.plot(ax=ax, cmap='Purples', vmin=0, vmax=cumsum_vmax, 
                         levels=cumsum_levels, extend='max', add_colorbar=False, 
-                        transform=proj, alpha=0.6)
+                        transform=proj, alpha=0.8)
             
             title = f'{plot_exp}\n{time_str}'
             
-            # Add dual colorbars with reduced padding
-            cbar1 = custom_cbar(ax, im1, cbar_loc='bottom')
+            # Add dual colorbars with explicit tick arrays
+            cbar1 = custom_cbar(ax, im1, cbar_loc='bottom', ticks=instant_ticks)
             cbar1.ax.set_xlabel(f'instantaneous {opts["plot_title"]} [{opts["units"]}]', fontsize=7)
             cbar1.ax.tick_params(labelsize=6)
             
-            cbar2 = custom_cbar(ax, im2, cbar_loc='right')
+            cbar2 = custom_cbar(ax, im2, cbar_loc='right', ticks=cumsum_ticks)
             cbar_title = f'cumulative {" ".join(opts["plot_title"].split()[:-1])} [mm]'
             cbar2.ax.set_ylabel(cbar_title, fontsize=7, rotation=90, labelpad=3)
             cbar2.ax.tick_params(labelsize=6)
@@ -451,13 +457,6 @@ def main():
         n_frames = ds.time.size
         print(f"  Total number of frames: {n_frames}")
         for i in range(n_frames):
-            # Check if figure already exists
-            time_suffix = f'_t{i:05d}' if 'time' in ds.dims else ''
-            fname = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}{time_suffix}.png'
-            
-            if os.path.exists(fname):
-                print(f"    Frame {i} already exists, skipping...")
-                continue
                 
             print(f"    Plotting time index {i}...")
             plot_precipitation_single_frame(ds, opts, dom, i, ds_cumsum)
@@ -470,12 +469,12 @@ def main():
         # Create MP4 animation from the frame files
         print("  Creating MP4 animation...")
         frame_pattern = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}_t*.png'
-        mp4_output = f'{plotpath}/{opts["plot_fname"]}_animation_{dom}'
-        make_mp4(frame_pattern, mp4_output, fps=36, quality=35)
+        mp4_output = f'{plotpath}/{opts["plot_fname"]}_animation_{dom}_q30'
+        make_mp4(frame_pattern, mp4_output, fps=36, quality=30)
 
         # now delete png files that were used to make the movie
         png_pattern = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}_t*.png'
-        png_files = glob.glob(png_pattern)
+        png_files = sorted(glob.glob(png_pattern))
         for png_file in png_files:
             if os.path.exists(png_file):
                 os.remove(png_file)

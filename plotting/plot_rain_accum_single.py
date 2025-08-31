@@ -13,6 +13,8 @@ import os
 import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend to save memory
 import cartopy.crs as ccrs
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.colorbar import ColorbarBase
@@ -30,6 +32,10 @@ DOMAIN = 'GAL9'  # or 'RAL3P2'
 EXPERIMENT = 'CCIv2_GAL9'  # specific experiment name
 VARIABLE = 'total_precipitation_rate'  # or 'stratiform_rainfall_flux'
 
+DOMAIN = 'RAL3P2'
+EXPERIMENT = 'CCIv2_RAL3P2'
+VARIABLE = 'stratiform_rainfall_flux'
+
 # Paths
 cylc_id = 'rns_ostia_NA_2016'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
@@ -38,6 +44,52 @@ plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
 ##############################################################################
 # Main Functions
 ##############################################################################
+
+def main():
+    """Main function"""
+    print(f"Plotting {EXPERIMENT} precipitation...")
+    
+    # Create output directory
+    os.makedirs(plotpath, exist_ok=True)
+    
+    # Load data
+    ds = load_data().compute()
+    
+    print(f"Data shape: {ds.shape}")
+    print(f"Time range: {ds.time.values[0]} to {ds.time.values[-1]}")
+    
+    # Pre-calculate cumulative sum for all time steps
+    print("Pre-calculating cumulative sums...")
+    ds_cumsum = ds.cumsum(dim='time').compute()
+    
+    # Plot all frames (or set n_frames to a smaller number for testing)
+    n_frames = ds.time.size
+    # n_frames = 20  # Uncomment this line for testing with fewer frames
+    
+    print(f"Creating {n_frames} frame plots...")
+    for i in range(n_frames):
+        print(f"Plotting time index {i}...")
+        plot_single_frame(ds, i, ds_cumsum)
+
+        # Garbage collection every 100 frames to manage memory
+        if (i + 1) % 100 == 0:
+            gc.collect()
+    
+    # Create MP4 animation from the frame files
+    print("Creating MP4 animation...")
+    frame_pattern = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t*.png'
+    mp4_output = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_animation_q30'
+    result = make_mp4(frame_pattern, mp4_output, fps=36, quality=30)
+    
+    # Delete PNG files that were used to make the movie
+    print("Cleaning up PNG files...")
+    png_files = sorted(glob.glob(frame_pattern))
+    for png_file in png_files:
+        if os.path.exists(png_file):
+            os.remove(png_file)
+            print(f"Deleted {png_file}")
+    
+    print(f"Completed! Created animation: {mp4_output}.mp4")
 
 def load_data():
     """Load the precipitation data"""
@@ -55,11 +107,8 @@ def load_data():
     
     return data
 
-def plot_single_frame(ds, time_index):
+def plot_single_frame(ds, time_index, ds_cumsum):
     """Plot a single time frame with overlaid instantaneous and cumulative precipitation"""
-    
-    # Calculate cumulative sum
-    ds_cumsum = ds.cumsum(dim='time')
     
     # Get time information
     time_str = str(ds.time.values[time_index])[:19].replace('T', ' ')
@@ -75,12 +124,16 @@ def plot_single_frame(ds, time_index):
     # Set up colorbar ranges
     instant_vmax = 20  # mm/hour
     cumsum_max = ds_cumsum.isel(time=-1).max().values
-    cumsum_vmax = 1000  # mm (hardcoded for consistency)
+    cumsum_vmax = 1500  # mm (hardcoded for consistency)
     
     # Define contour levels
-    instant_levels = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-                     1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+    instant_levels = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
+                     0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     cumsum_levels = np.linspace(0, cumsum_vmax, 21)
+    
+    # Define custom tick locations (every 2nd level)
+    instant_ticks = instant_levels[::2]  # Every 2nd level: [0, 0.1, 0.2, 0.3, ...]
+    cumsum_ticks = cumsum_levels[::2]    # Every 2nd level: [0, 150, 300, ...]
     
     # Create the plot
     proj = ccrs.PlateCarree()
@@ -91,12 +144,12 @@ def plot_single_frame(ds, time_index):
     # Plot instantaneous precipitation (Blues) - background
     im1 = instant_data.plot(ax=ax, cmap='Blues', vmin=0, vmax=instant_vmax,
                            levels=instant_levels, extend='max', add_colorbar=False,
-                           transform=proj, alpha=0.7)
+                           transform=proj, alpha=1.0)
     
     # Plot cumulative precipitation (Purples) - overlay
     im2 = cumsum_data.plot(ax=ax, cmap='Purples', vmin=0, vmax=cumsum_vmax,
                           levels=cumsum_levels, extend='max', add_colorbar=False,
-                          transform=proj, alpha=0.6)
+                          transform=proj, alpha=0.8)
     
     # Set title
     ax.set_title(f'ACCESS-rAM3: {EXPERIMENT}\n{time_str}', fontsize=12)
@@ -115,11 +168,11 @@ def plot_single_frame(ds, time_index):
     ax.tick_params(axis='x', labelsize=7)
     
     # Add colorbars
-    cbar1 = custom_cbar(ax, im1, cbar_loc='bottom')
+    cbar1 = custom_cbar(ax, im1, cbar_loc='bottom', ticks=instant_ticks)
     cbar1.ax.set_xlabel('instantaneous precipitation [mm/hour]', fontsize=8)
     cbar1.ax.tick_params(labelsize=7)
     
-    cbar2 = custom_cbar(ax, im2, cbar_loc='right')
+    cbar2 = custom_cbar(ax, im2, cbar_loc='right', ticks=cumsum_ticks)
     cbar2.ax.set_ylabel('cumulative precipitation [mm]', fontsize=8, rotation=90, labelpad=3)
     cbar2.ax.tick_params(labelsize=7)
     
@@ -127,7 +180,11 @@ def plot_single_frame(ds, time_index):
     fname = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t{time_index:05d}.png'
     print(f'Saving figure to {fname}')
     fig.savefig(fname, dpi=200, bbox_inches='tight')
-    plt.close()
+
+    # Explicit memory cleanup
+    plt.close(fig)
+    plt.clf()
+    plt.cla()
     
     return fname
 
@@ -195,7 +252,7 @@ def get_bounds_for_cartopy(ds, y_dim='latitude', x_dim='longitude'):
 
     return left, bottom, right, top
 
-def custom_cbar(ax, im, cbar_loc='right'):
+def custom_cbar(ax, im, cbar_loc='right', ticks=None):
     """Create a custom colorbar"""
     import matplotlib.ticker as mticker
 
@@ -222,6 +279,10 @@ def custom_cbar(ax, im, cbar_loc='right'):
         )
         cbar = ColorbarBase(cax, cmap=im.cmap, norm=im.norm, orientation='horizontal')
 
+    # Set custom ticks if provided
+    if ticks is not None:
+        cbar.set_ticks(ticks)
+
     cbar.formatter = mticker.ScalarFormatter(useMathText=True)
     cbar.formatter.set_powerlimits((-6, 6))
     cbar.update_ticks()
@@ -229,52 +290,6 @@ def custom_cbar(ax, im, cbar_loc='right'):
     return cbar
 
 ##############################################################################
-
-def main():
-    """Main function"""
-    print(f"Plotting {EXPERIMENT} precipitation...")
-    
-    # Create output directory
-    os.makedirs(plotpath, exist_ok=True)
-    
-    # Load data
-    ds = load_data().compute()
-    
-    print(f"Data shape: {ds.shape}")
-    print(f"Time range: {ds.time.values[0]} to {ds.time.values[-1]}")
-    
-    # Plot all frames (or set n_frames to a smaller number for testing)
-    n_frames = ds.time.size
-    # n_frames = 20  # Uncomment this line for testing with fewer frames
-    
-    print(f"Creating {n_frames} frame plots...")
-    for i in range(n_frames):
-        print(f"Plotting time index {i}...")
-        plot_single_frame(ds, i)
-
-        # Garbage collection every 100 frames to manage memory
-        if (i + 1) % 100 == 0:
-            gc.collect()
-    
-    # Create MP4 animation from the frame files
-    print("Creating MP4 animation...")
-    frame_pattern = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t*.png'
-    mp4_output = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_animation'
-    result = make_mp4(frame_pattern, mp4_output, fps=36, quality=25)
-    print(result)
-    
-    # Delete PNG files that were used to make the movie
-    print("Cleaning up PNG files...")
-    png_files = glob.glob(frame_pattern)
-    for png_file in png_files:
-        if os.path.exists(png_file):
-            os.remove(png_file)
-            print(f"Deleted {png_file}")
-
-    # final plot
-    plot_single_frame(ds, i)
-    
-    print(f"Completed! Created animation: {mp4_output}.mp4")
 
 if __name__ == "__main__":
     main()
