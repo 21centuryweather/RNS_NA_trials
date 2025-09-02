@@ -14,7 +14,6 @@ import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend to save memory
 import cartopy.crs as ccrs
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.colorbar import ColorbarBase
@@ -30,14 +29,10 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 # Specific configuration
 DOMAIN = 'GAL9'  # or 'RAL3P2'
 EXPERIMENT = 'CCIv2_GAL9'  # specific experiment name
-VARIABLE = 'total_precipitation_rate'  # or 'stratiform_rainfall_flux'
-
-DOMAIN = 'RAL3P2'
-EXPERIMENT = 'CCIv2_RAL3P2'
-VARIABLE = 'stratiform_rainfall_flux'
+VARIABLE = 'total_precipitation_rate'  # or 'stratiform_rainfall_flux' for RAL3
 
 # Paths
-cylc_id = 'rns_ostia_NA_2016'
+cylc_id = 'rns_ostia_NA_2020'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
 plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
 
@@ -77,9 +72,10 @@ def main():
     
     # Create MP4 animation from the frame files
     print("Creating MP4 animation...")
+    mp4_qual = 32
     frame_pattern = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t*.png'
-    mp4_output = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_animation_q30'
-    result = make_mp4(frame_pattern, mp4_output, fps=36, quality=30)
+    mp4_output = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_animation_q{mp4_qual}'
+    result = make_mp4(frame_pattern, mp4_output, fps=48, quality=mp4_qual)
     
     # Delete PNG files that were used to make the movie
     print("Cleaning up PNG files...")
@@ -123,13 +119,16 @@ def plot_single_frame(ds, time_index, ds_cumsum):
     
     # Set up colorbar ranges
     instant_vmax = 20  # mm/hour
-    cumsum_max = ds_cumsum.isel(time=-1).max().values
+    cumsum_vmax = ds_cumsum.isel(time=-1).max().values
+    cumsum_vmax = round(cumsum_vmax / 100) * 100  # Round to nearest 100
     cumsum_vmax = 1500  # mm (hardcoded for consistency)
     
-    # Define contour levels
+    # Define better instant precipitation levels
     instant_levels = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
-                     0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-    cumsum_levels = np.linspace(0, cumsum_vmax, 21)
+                        0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 10, 12, 15, 20, 40][:n_levels]
+
+    cumsum_levels = [0, 5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 
+                        250, 300, 400, 500, 600, 800, 1000, 1250, 1500, 2000][:n_levels]
     
     # Define custom tick locations (every 2nd level)
     instant_ticks = instant_levels[::2]  # Every 2nd level: [0, 0.1, 0.2, 0.3, ...]

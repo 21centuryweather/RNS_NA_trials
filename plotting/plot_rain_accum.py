@@ -12,8 +12,8 @@ Date: 2025-08-30
 import os
 import xarray as xr
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend to save memory
+# import matplotlib
+# matplotlib.use('Agg')  # Use non-interactive backend to save memory
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -30,7 +30,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # Paths
 oshome = os.getenv('HOME')
-cylc_id = 'rns_ostia_NA_2016'
+cylc_id = 'rns_ostia_NA_2017'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
 plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
 
@@ -172,29 +172,25 @@ def custom_cbar(ax, im, cbar_loc='right', ticks=None):
 
     return cbar
 
-def create_white_center_cmap(n_levels=15, cmap='RdBu'):
+def create_white_center_cmap(n_levels=21, cmap='RdBu'):
     """
     Create a custom colormap with white at the center two levels (one negative, one positive around zero)
     """
-    
+
+    new_levels = n_levels+1 # account for extension beyond min and max
+
     # Get colors from the base cmap
     base_cmap = plt.colormaps[cmap]
-    colors = [base_cmap(i / (n_levels - 1)) for i in range(n_levels)]
-    
+    colors = [base_cmap(i / (new_levels - 1)) for i in range(new_levels)]
+
     # Replace the center two colors with white (one negative, one positive around zero)
     center = n_levels // 2
-    if n_levels % 2 == 1:  # Odd number of levels
-        # For odd levels, center is at zero, make the levels on either side white
-        colors[center] = (1.0, 1.0, 1.0, 1.0)  # Level just below zero (negative)
-        colors[center + 1] = (1.0, 1.0, 1.0, 1.0)  # Level just above zero (positive)
-        # Keep the center level (zero) as original color
-    else:  # Even number of levels
-        colors[center - 1] = (1.0, 1.0, 1.0, 1.0)  # Lower center level (negative)
-        colors[center] = (1.0, 1.0, 1.0, 1.0)      # Upper center level (positive)
-    
+    colors[center] = (1.0, 1.0, 1.0, 1.0)  # Level just below zero (negative)
+    colors[center + 1] = (1.0, 1.0, 1.0, 1.0)  # Level just above zero (positive))
+
     # Create the custom colormap
-    cmap = LinearSegmentedColormap.from_list('white_center', colors, N=n_levels)
-    return cmap
+    new_cmap = LinearSegmentedColormap.from_list('white_center', colors, N=new_levels)
+    return new_cmap
 
 def get_variable_opts(variable):
     """
@@ -300,11 +296,12 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
                             subplot_kw={'projection': proj})
     plot_list = exp_list + ['diff']
 
+    n_levels = 21
+
     for ax, plot_exp in zip(axes, plot_list):
         if plot_exp == 'diff':
             # Plot difference
             data_to_plot = diff_data
-            n_levels = 21
             cmap = create_white_center_cmap(n_levels, cmap='RdBu')  # Custom colormap with white center
             # Round diff_max up to nearest ten for symmetric colorbar
             vlim = np.floor(diff_max / 10) * 10
@@ -335,7 +332,10 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
             
             # Define better instant precipitation levels
             instant_levels = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
-                             0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+                             0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 10, 12, 15, 20, 40][:n_levels]
+
+            cumsum_levels = [0, 5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 
+                             250, 300, 400, 500, 600, 800, 1000, 1250, 1500, 2000][:n_levels]
 
             im1 = instant_data.plot(ax=ax, cmap=opts['cmap'], vmin=opts['vmin'], vmax=opts['vmax'], 
                         levels=instant_levels, extend='max', add_colorbar=False, 
@@ -344,9 +344,6 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
             # 2. Plot cumulative precipitation (Purples) - overlay
             cumsum_data = ds_cumsum.sel(experiment=plot_exp).isel(time=time_index)
             cumsum_data = cumsum_data.where(cumsum_data > 0)  # Mask zero values
-            
-            # Use consistent cumulative colormap range across experiments
-            cumsum_levels = np.linspace(0, cumsum_vmax, 21)
             
             # Define custom tick locations (every 2nd level)
             instant_ticks = instant_levels[::2]  # Every 2nd level
@@ -470,7 +467,7 @@ def main():
         print("  Creating MP4 animation...")
         frame_pattern = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}_t*.png'
         mp4_output = f'{plotpath}/{opts["plot_fname"]}_animation_{dom}_q30'
-        make_mp4(frame_pattern, mp4_output, fps=36, quality=30)
+        make_mp4(frame_pattern, mp4_output, fps=48, quality=30)
 
         # now delete png files that were used to make the movie
         png_pattern = f'{plotpath}/{opts["plot_fname"]}_single_frame_{dom}_t*.png'
