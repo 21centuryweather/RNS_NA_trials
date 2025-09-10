@@ -49,11 +49,12 @@ variables = ['air_temperature_3d']
 variables = ['stratiform_rainfall_flux','total_precipitation_rate']
 variables = ['moist_static_energy_3d']
 variables = ['upward_air_velocity_3d']
+variables = ['wind_speed']
 variables = ['moisture_convergence_emma']
 
 doms = ['GAL9']
-doms = ['GAL9','RAL3P2']
 doms = ['RAL3P2']
+doms = ['GAL9','RAL3P2']
 
 ###############################################################################
 
@@ -265,11 +266,14 @@ def main(datapath, plotpath, cycle_path, doms, cylc_id):
                 ds = ds.compute()
                 plot_spatial(ds.sel(pressure=500), opts, exps, dom, datapath, cycle_path, coarsen=False, suffix=f'_500hPa')
                 plot_spatial(ds.sel(pressure=850), opts, exps, dom, datapath, cycle_path, coarsen=False, suffix=f'_850hPa')
-                # plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==12), opts, exps, dom, variable, suffix='_dec')
-                # plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==1), opts, exps, dom, variable, suffix='_jan')
-                # plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==2), opts, exps, dom, variable, suffix='_feb')
                 plot_vertical_velocity_profiles(ds, opts, exps, dom, variable, suffix='')
             else:
+                if variable in ['moisture_convergence_emma']:
+                    # change units to from mm/day to mm over simulation period
+                    days_in_sim = ds[exp].time.size // 24
+                    for exp in exps:
+                        ds[exp] = -ds[exp] * days_in_sim  # convert from mm/day to total and divergence to convergence
+                        ds[exp].attrs['units'] = 'mm'
                 ds = ds.compute()
                 plot_spatial(ds, opts, exps, dom, datapath, cycle_path, coarsen=False, suffix=f'')
                 plot_spatial(ds, opts, exps, dom, datapath, cycle_path, coarsen=True, suffix= f'_coarsened')
@@ -428,12 +432,23 @@ def plot_spatial(dss, opts, exps, dom, datapath, cycle_path, coarsen=False, suff
         title = exp if exp != 'diff' else f'{exps[1]} - {exps[0]} difference'
         cbar_title =  f'mean {opts["plot_title"]} [{opts["units"]}]' if exp != 'diff' else f'difference {opts["plot_title"]} [{opts["units"]}]'
 
-        levels = np.linspace(vmin, vmax, 21)
+        if variable in ['moisture_convergence_old','moisture_convergence_emma']:
+            diff_vmax = 400
+            if exp == 'diff':
+                cmap = 'coolwarm_r'
+
+        levels = np.linspace(vmin, vmax, 11)
 
         im = ds_mean[exp].plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, levels=levels,
                     extend='both',add_colorbar=False, transform=proj)
                            
         ax.set_title(title)
+
+        # add cylc_id as text
+        ax.text(0.02, 0.98, cylc_id, transform=ax.transAxes, 
+                fontsize=6, verticalalignment='top', horizontalalignment='left',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, edgecolor='none'),
+                zorder=10)
 
         # # for cartopy
         ax.xaxis.set_visible(True)
@@ -1642,8 +1657,8 @@ def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Create plots from UM files')
     parser.add_argument('--cylc-id', '--cylc_id', type=str, nargs='+', 
-                        default=['rns_ostia_NA_2018'],
-                        help='Cylc ID(s) to process (default: rns_ostia_NA_2018)')
+                        default=['rns_ostia_NA_2019'],
+                        help='Cylc ID(s) to process (default: rns_ostia_NA_2019)')
     return parser.parse_args()
 
 if __name__ == "__main__":

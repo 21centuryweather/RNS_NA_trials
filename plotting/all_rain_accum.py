@@ -31,6 +31,8 @@ cylc_ids = [f'rns_ostia_NA_{year}' for year in years]
 # Use the first cylc_id for the output path
 plotpath = f'/g/data/fy29/mjl561/cylc-run/rns_ostia_NA_all/figures'
 
+xmin, xmax, ymin, ymax = 123.64, 140.34, -9.08, -22.64
+
 # Domains and experiments
 doms = ['GAL9', 'RAL3P2']
 exps = {
@@ -230,6 +232,9 @@ def plot_total_accumulation(dom, domain_data, suffix):
         exp_total = exp_total.expand_dims('experiment').assign_coords(experiment=[exp])
         total_accum_list.append(exp_total)
 
+    # find the number of months in the data in first experiment
+    n_months = len(exp_datasets[exp_list[0]]) * 3
+
     # Concatenate along experiment dimension
     total_accum = xr.concat(total_accum_list, dim='experiment')
 
@@ -255,10 +260,11 @@ def plot_total_accumulation(dom, domain_data, suffix):
     # Set up consistent color scales
     accum_max = max([total_accum.sel(experiment=exp).max().values for exp in exp_list])
     accum_vmax = np.ceil(accum_max / 100) * 100  # Round up to nearest 100
+    accum_vmax = 1000
     
     diff_max = abs(total_accum.sel(experiment='diff')).max().values
     diff_vlim = np.ceil(diff_max / 50) * 50  # Round up to nearest 50
-    diff_vlim = 1000
+    diff_vlim = 100
     
     print(f"Using accumulation max: {accum_vmax} mm")
     print(f"Using difference limit: ±{diff_vlim} mm")
@@ -266,7 +272,7 @@ def plot_total_accumulation(dom, domain_data, suffix):
     for ax, plot_exp in zip(axes, plot_list):
         if plot_exp == 'diff':
             # Plot difference
-            data_to_plot = total_accum.sel(experiment='diff')
+            data_to_plot = total_accum.sel(experiment='diff') / n_months  # Average per month
             n_levels = 21
             cmap = create_white_center_cmap(n_levels, cmap='RdBu')
             # cmap = plt.colormaps['RdBu']
@@ -275,8 +281,8 @@ def plot_total_accumulation(dom, domain_data, suffix):
             levels = np.linspace(vmin, vmax, n_levels)
             diff_ticks = levels[::2]  # Every 2nd level
             
-            title = f'{exp_list[1]} - {exp_list[0]}\nTotal accumulation difference'
-            cbar_title = f'Total precipitation difference [mm]'
+            title = f'{exp_list[1]} - {exp_list[0]}\nAverage monthly accumulation difference'
+            cbar_title = f'Average monthly precipitation difference [mm]'
             
             im = data_to_plot.plot(ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, 
                                   levels=levels, extend='both', add_colorbar=False, 
@@ -289,15 +295,15 @@ def plot_total_accumulation(dom, domain_data, suffix):
             
         else:
             # Plot total accumulation for individual experiments
-            data_to_plot = total_accum.sel(experiment=plot_exp)
+            data_to_plot = total_accum.sel(experiment=plot_exp) / n_months  # Average per month
             data_to_plot = data_to_plot.where(data_to_plot > 0)  # Mask zero values
             
             levels = 21
             accum_levels = np.linspace(0, accum_vmax, levels)
             accum_ticks = accum_levels[::2]  # Every 2nd level
             
-            title = f'{plot_exp}\nTotal precipitation accumulation'
-            cbar_title = f'Total precipitation [mm]'
+            title = f'{plot_exp}\nAverage monthly precipitation accumulation'
+            cbar_title = f'Average monthly precipitation [mm]'
             
             im = data_to_plot.plot(ax=ax, cmap='Blues', vmin=0, vmax=accum_vmax,
                                   levels=accum_levels, extend='max', add_colorbar=False,
@@ -321,6 +327,15 @@ def plot_total_accumulation(dom, domain_data, suffix):
         ax.xaxis.set_visible(True)
         ax.yaxis.set_visible(True)
         ax.coastlines(resolution='10m', color='0.1', linewidth=1, zorder=5)
+        
+        # Add RAL3P2 domain outline if plotting GAL9
+        if dom == 'GAL9':
+            from matplotlib.patches import Rectangle
+            rect = Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, 
+                           linewidth=1, linestyle='--', edgecolor='black', 
+                           facecolor='none', transform=proj, zorder=6)
+            ax.add_patch(rect)
+        
         left, bottom, right, top = get_bounds_for_cartopy(data_to_plot)
         ax.set_extent([left, right, bottom, top], crs=proj)
         
@@ -426,6 +441,10 @@ def plot_monthly_overlay_accumulation(dom, domain_data, suffix):
     control_datasets = exp_datasets[control_exp]
     modified_datasets = exp_datasets[modified_exp]
     
+    # Collect all anomaly values to determine overall min/max
+    all_anomaly_values = []
+    all_anomaly_series = []  # Store individual year series for averaging
+    
     # Plot anomaly for each year
     for year_idx, (control_ds, modified_ds) in enumerate(zip(control_datasets, modified_datasets)):
         # Calculate spatial mean over domain for both experiments
@@ -443,6 +462,10 @@ def plot_monthly_overlay_accumulation(dom, domain_data, suffix):
         months = anomaly_cumsum.time.dt.month.values
         mask = (months == 12) | (months == 1) | (months == 2)
         anomaly_filtered = anomaly_cumsum[mask]
+        
+        # Collect values for overall min/max calculation
+        all_anomaly_values.extend(anomaly_filtered.values)
+        all_anomaly_series.append(anomaly_filtered.values)
         
         # Calculate timestep indices for each timestep, starting from timestep 1
         time_filtered = anomaly_filtered.time
@@ -465,10 +488,31 @@ def plot_monthly_overlay_accumulation(dom, domain_data, suffix):
             ax.text(last_x + 5, last_y, year_label, fontsize=8, 
                    verticalalignment='center', color=color, alpha=0.9)
 
+    # Calculate and plot the average of all years
+    if all_anomaly_series:
+        # Ensure all series have the same length (they should for the same season)
+        min_length = min(len(series) for series in all_anomaly_series)
+        truncated_series = [series[:min_length] for series in all_anomaly_series]
+        
+        # Calculate mean across all years
+        average_anomaly = np.mean(truncated_series, axis=0)
+        average_timesteps = list(range(1, len(average_anomaly) + 1))
+        
+        # Plot average line as thick black dashed line
+        ax.plot(average_timesteps, average_anomaly, 
+               linewidth=2, color='black', linestyle='--', alpha=0.8)
+
+    # Find overall min/max and set symmetric y-limits to center the zero line
+    overall_min = min(all_anomaly_values)
+    overall_max = max(all_anomaly_values)
+    y_limit = max(abs(overall_min), abs(overall_max))
+    y_limit = y_limit * 1.1  # Add 10% padding
+    ax.set_ylim(-y_limit, y_limit)
+
     ax.axhline(0, color='black', linestyle='--', linewidth=1)
     
     # Format the plot
-    ax.set_xlabel('Timestep in Season (Dec 1 is Timestep 1)')
+    ax.set_xlabel('')
     ax.set_ylabel('Cumulative Precipitation Anomaly [mm]')
     ax.set_title(f'Cumulative {precip_var.replace("_", " ").title()} Years: {", ".join([id.split("_")[-1] for id in cylc_ids])}')
     ax.grid(True, alpha=0.3)
@@ -524,11 +568,14 @@ if __name__ == "__main__":
         for exp, datasets in domain_data['data'].items():
             masked_domain_data['data'][exp] = [ds.where(lsm_mask.squeeze().to_array() == 1) for ds in datasets]
 
-        plot_total_accumulation(dom, domain_data, suffix='')
-        print(f"Completed total accumulation plotting for domain {dom}")
+        # plot_total_accumulation(dom, domain_data, suffix='')
+        # print(f"Completed total accumulation plotting for domain {dom}")
+
+        # plot_total_accumulation(dom, masked_domain_data, suffix='_masked')
+        # print(f"Completed total accumulation plotting for domain {dom}")
     
-        plot_all_accumulation_timeseries(dom, masked_domain_data, suffix='_masked')
-        print(f"Completed cumulative timeseries plotting for domain {dom}")
+        # plot_all_accumulation_timeseries(dom, masked_domain_data, suffix='_masked')
+        # print(f"Completed cumulative timeseries plotting for domain {dom}")
     
         plot_monthly_overlay_accumulation(dom, masked_domain_data, suffix='_masked')
         print(f"Completed monthly overlay plotting for domain {dom}")
