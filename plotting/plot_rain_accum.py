@@ -30,7 +30,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # Paths
 oshome = os.getenv('HOME')
-cylc_id = 'rns_ostia_NA_2017'
+cylc_id = 'rns_ostia_NA_2014'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
 plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
 
@@ -334,8 +334,8 @@ def plot_precipitation_single_frame(ds, opts, dom, time_index, ds_cumsum, suffix
             instant_levels = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
                              0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 10, 12, 15, 20, 40][:n_levels]
 
-            cumsum_levels = [0, 5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 
-                             250, 300, 400, 500, 600, 800, 1000, 1250, 1500, 2000][:n_levels]
+            cumsum_levels = [0, 25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 
+                             600, 700, 800, 900, 1000, 1100, 1200, 1350, 1500, 2000][:n_levels]
 
             im1 = instant_data.plot(ax=ax, cmap=opts['cmap'], vmin=opts['vmin'], vmax=opts['vmax'], 
                         levels=instant_levels, extend='max', add_colorbar=False, 

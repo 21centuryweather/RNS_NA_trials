@@ -32,9 +32,10 @@ EXPERIMENT = 'CCIv2_GAL9'  # specific experiment name
 VARIABLE = 'total_precipitation_rate'  # or 'stratiform_rainfall_flux' for RAL3
 
 # Paths
-cylc_id = 'rns_ostia_NA_2020'
+cylc_id = 'rns_ostia_NA_2016'
 datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/netcdf'
 plotpath = f'/g/data/fy29/mjl561/cylc-run/{cylc_id}/figures'
+suffix = '_no_coast'
 
 ##############################################################################
 # Main Functions
@@ -72,9 +73,9 @@ def main():
     
     # Create MP4 animation from the frame files
     print("Creating MP4 animation...")
-    mp4_qual = 32
-    frame_pattern = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t*.png'
-    mp4_output = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_animation_q{mp4_qual}'
+    mp4_qual = 30
+    frame_pattern = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t*{suffix}.png'
+    mp4_output = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_animation_q{mp4_qual}{suffix}'
     result = make_mp4(frame_pattern, mp4_output, fps=48, quality=mp4_qual)
     
     # Delete PNG files that were used to make the movie
@@ -122,14 +123,19 @@ def plot_single_frame(ds, time_index, ds_cumsum):
     cumsum_vmax = ds_cumsum.isel(time=-1).max().values
     cumsum_vmax = round(cumsum_vmax / 100) * 100  # Round to nearest 100
     cumsum_vmax = 1500  # mm (hardcoded for consistency)
+
+    n_levels = 21
     
     # Define better instant precipitation levels
     instant_levels = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45,
                         0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 10, 12, 15, 20, 40][:n_levels]
 
-    cumsum_levels = [0, 5, 10, 20, 30, 40, 50, 75, 100, 150, 200, 
-                        250, 300, 400, 500, 600, 800, 1000, 1250, 1500, 2000][:n_levels]
-    
+    cumsum_levels = [0, 25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 
+                    600, 700, 800, 900, 1000, 1100, 1200, 1350, 1500, 2000][:n_levels]
+
+    # equal levels
+    cumsum_levels = np.linspace(0, cumsum_vmax, n_levels)
+
     # Define custom tick locations (every 2nd level)
     instant_ticks = instant_levels[::2]  # Every 2nd level: [0, 0.1, 0.2, 0.3, ...]
     cumsum_ticks = cumsum_levels[::2]    # Every 2nd level: [0, 150, 300, ...]
@@ -154,7 +160,7 @@ def plot_single_frame(ds, time_index, ds_cumsum):
     ax.set_title(f'ACCESS-rAM3: {EXPERIMENT}\n{time_str}', fontsize=12)
     
     # Add coastlines and set extent
-    ax.coastlines(resolution='10m', color='0.1', linewidth=1, zorder=5)
+    # ax.coastlines(resolution='10m', color='0.1', linewidth=1, zorder=5)
     left, bottom, right, top = get_bounds_for_cartopy(ds)
     ax.set_extent([left, right, bottom, top], crs=proj)
     
@@ -176,7 +182,7 @@ def plot_single_frame(ds, time_index, ds_cumsum):
     cbar2.ax.tick_params(labelsize=7)
     
     # Save figure
-    fname = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t{time_index:05d}.png'
+    fname = f'{plotpath}/{VARIABLE}_single_{DOMAIN}_t{time_index:05d}{suffix}.png'
     print(f'Saving figure to {fname}')
     fig.savefig(fname, dpi=200, bbox_inches='tight')
 

@@ -40,9 +40,7 @@ variables = ['surface_roughness_length']
 variables = ['boundary_layer_depth']
 variables = ['convective_rainfall_flux']
 variables = ['precip_w_cross_correlation']
-variables = ['upward_air_velocity_3d']
 variables = ['wet_bulb_potential_temperature_3d']
-variables = ['moisture_convergence_emma']
 variables = ['moisture_convergence_old']
 variables = ['latent_heat_flux']
 variables = ['geopotential_height_3d']
@@ -50,16 +48,20 @@ variables = ['relative_humidity_3d']
 variables = ['air_temperature_3d']
 variables = ['stratiform_rainfall_flux','total_precipitation_rate']
 variables = ['moist_static_energy_3d']
+variables = ['upward_air_velocity_3d']
+variables = ['moisture_convergence_emma']
 
-doms = ['RAL3P2']
 doms = ['GAL9']
 doms = ['GAL9','RAL3P2']
+doms = ['RAL3P2']
 
 ###############################################################################
 
 def main(datapath, plotpath, cycle_path, doms, cylc_id):
 
     for dom in doms:
+
+        print('processing domain:', dom)
 
         ###############################################################################
         
@@ -224,7 +226,7 @@ def main(datapath, plotpath, cycle_path, doms, cylc_id):
             # plot_spatial(ds_500, opts_500, coarsen=False)
             # plot_spatial(ds_500, opts_500, coarsen=True)
 
-            # # plot_vertical_velocity_profiles(ds.sel(time=slice('2020-01-05','2020-02-05')), suffix='_jan')
+            # # plot_vertical_velocity_profiles(ds.sel(time=slice('2020-01-05','2020-02-05')), exps, suffix='_jan')
 
 
             if variable in ['stratiform_rainfall_flux', 'total_precipitation_rate']:
@@ -258,19 +260,19 @@ def main(datapath, plotpath, cycle_path, doms, cylc_id):
                 if plot_hours is not None:
                     for hour in plot_hours:
                         plot_wind_quiver(u.sel(time=u.time.dt.hour==hour), v.sel(time=v.time.dt.hour==hour), suffix=f'_hour_{hour}')
-            elif variable == 'moist_static_energy_3d':
-                print('plotting moist static energy')
+            elif variable in ['moist_static_energy_3d', 'upward_air_velocity_3d']:
+                print(f'plotting {variable}')
                 ds = ds.compute()
-                plot_spatial(ds.sel(pressure=500), opts, exps, datapath, cycle_path, coarsen=False, suffix=f'_500hPa')
-                plot_spatial(ds.sel(pressure=850), opts, exps, datapath, cycle_path, coarsen=False, suffix=f'_850hPa')
-                plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==12), suffix='_dec')
-                plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==1), suffix='_jan')
-                plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==2), suffix='_feb')
-                plot_vertical_velocity_profiles(ds, suffix='_all')
+                plot_spatial(ds.sel(pressure=500), opts, exps, dom, datapath, cycle_path, coarsen=False, suffix=f'_500hPa')
+                plot_spatial(ds.sel(pressure=850), opts, exps, dom, datapath, cycle_path, coarsen=False, suffix=f'_850hPa')
+                # plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==12), opts, exps, dom, variable, suffix='_dec')
+                # plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==1), opts, exps, dom, variable, suffix='_jan')
+                # plot_vertical_velocity_profiles(ds.sel(time=ds.time.dt.month==2), opts, exps, dom, variable, suffix='_feb')
+                plot_vertical_velocity_profiles(ds, opts, exps, dom, variable, suffix='')
             else:
                 ds = ds.compute()
-                plot_spatial(ds, opts, exps, datapath, cycle_path, coarsen=False, suffix=f'')
-                plot_spatial(ds, opts, exps, datapath, cycle_path, coarsen=True, suffix= f'_coarsened')
+                plot_spatial(ds, opts, exps, dom, datapath, cycle_path, coarsen=False, suffix=f'')
+                plot_spatial(ds, opts, exps, dom, datapath, cycle_path, coarsen=True, suffix= f'_coarsened')
                 if 'time' in ds.dims:
                     plot_cumsum(ds, opts, exps, datapath, cycle_path, plotpath, dom)
 
@@ -393,13 +395,13 @@ def plot_rain_diff(ds, exps, opts, plotpath, dom, coarsen=False, suffix=''):
 
     fig.savefig(fname, dpi=300, bbox_inches='tight')
 
-def plot_spatial(ds, opts, exps, datapath, cycle_path, coarsen=False, suffix=''):
+def plot_spatial(dss, opts, exps, dom, datapath, cycle_path, coarsen=False, suffix=''):
     '''plots the two experiments and a difference between them'''
 
-    if 'time' in ds.dims:
-        ds_mean = ds.mean(dim='time')
+    if 'time' in dss.dims:
+        ds_mean = dss.mean(dim='time')
     else:
-        ds_mean = ds
+        ds_mean = dss.copy()
 
     ds_mean['diff'] = ds_mean[exps[1]] - ds_mean[exps[0]]
     ds_mean = ds_mean.compute()
@@ -437,7 +439,7 @@ def plot_spatial(ds, opts, exps, datapath, cycle_path, coarsen=False, suffix='')
         ax.xaxis.set_visible(True)
         ax.yaxis.set_visible(True)
         ax.coastlines(resolution='10m', color='0.1', linewidth=1, zorder=5)
-        left, bottom, right, top = get_bounds(ds)
+        left, bottom, right, top = get_bounds(ds_mean)
         ax.set_extent([left, right, bottom, top], crs=proj)
 
         subplotspec = ax.get_subplotspec()
@@ -1595,7 +1597,7 @@ def get_variable_opts(variable):
 
     return opts
 
-def plot_vertical_velocity_profiles(ds,suffix=''):
+def plot_vertical_velocity_profiles(ds,opts,exps,dom,variable,suffix=''):
     # mask to land areas only
     ds_mean = xr.Dataset()
     for exp in exps:
@@ -1640,8 +1642,8 @@ def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Create plots from UM files')
     parser.add_argument('--cylc-id', '--cylc_id', type=str, nargs='+', 
-                        default=['rns_ostia_NA_2020'],
-                        help='Cylc ID(s) to process (default: rns_ostia_NA_2020)')
+                        default=['rns_ostia_NA_2018'],
+                        help='Cylc ID(s) to process (default: rns_ostia_NA_2018)')
     return parser.parse_args()
 
 if __name__ == "__main__":
