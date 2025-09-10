@@ -8,7 +8,7 @@
 #PBS -l jobfs=10GB
 #PBS -P fy29
 #PBS -M m.lipson@unsw.edu.au
-#PBS -N run_pp_2020_vertical_winds
+#PBS -N run_pp_2014
 
 module purge
 module use /g/data/hh5/public/modules
@@ -25,7 +25,7 @@ YEARS="2017"
 YEARS="2018"
 YEARS="2019"
 YEARS="2014 2015 2016 2017 2018 2019 2020"
-YEARS="2020"
+YEARS="2014"
 
 # Automatically construct cylc_id arguments from years
 CYLC_IDS=""

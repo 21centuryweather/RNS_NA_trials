@@ -208,12 +208,9 @@ def load_dom_data(dom):
         print(f"No data found for domain {dom}")
         return None
 
-def plot_total_accumulation(dom, domain_data):
+def plot_total_accumulation(dom, domain_data, suffix):
     """Plot total precipitation accumulation for all experiments in a domain"""
-    if domain_data is None:
-        print(f"No data available for domain {dom}")
-        return None
-        
+
     print(f"\nProcessing total accumulation for domain: {dom}")
     
     exp_datasets = domain_data['data']  # dict of exp -> list of yearly datasets
@@ -222,10 +219,11 @@ def plot_total_accumulation(dom, domain_data):
 
     print(f"Variable: {precip_var}")
     print(f"Experiments: {exp_list}")
-
+   
     # Calculate total accumulation for each experiment by summing over time for each year, then summing those results
     total_accum_list = []
     for exp in exp_list:
+        print(f"Calculating total accumulation for experiment: {exp}")
         yearly_sums = [ds.sum(dim='time').compute() for ds in exp_datasets[exp]]
         exp_total = sum(yearly_sums)
         # Add experiment coordinate
@@ -260,6 +258,7 @@ def plot_total_accumulation(dom, domain_data):
     
     diff_max = abs(total_accum.sel(experiment='diff')).max().values
     diff_vlim = np.ceil(diff_max / 50) * 50  # Round up to nearest 50
+    diff_vlim = 1000
     
     print(f"Using accumulation max: {accum_vmax} mm")
     print(f"Using difference limit: ±{diff_vlim} mm")
@@ -333,18 +332,13 @@ def plot_total_accumulation(dom, domain_data):
         ax.tick_params(axis='x', labelbottom=True, labeltop=False, labelsize=7)
     
     # Save figure
-    fname = f'{plotpath}/{precip_var}_total_accumulation_{dom}.png'
+    fname = f'{plotpath}/{precip_var}_total_accumulation_{dom}{suffix}.png'
     print(f'Saving figure to {fname}')
     fig.savefig(fname, dpi=300, bbox_inches='tight')
     
-    # Cleanup
-    plt.close(fig)
-    plt.clf()
-    plt.cla()
-    
     return fname
 
-def plot_all_accumulation(dom, domain_data):
+def plot_all_accumulation_timeseries(dom, domain_data, suffix):
     """Plots a timeseries of cumulative precipitation for a single domain"""
         
     print(f"\nCreating cumulative precipitation timeseries plot for domain: {dom}")
@@ -361,11 +355,16 @@ def plot_all_accumulation(dom, domain_data):
     exp_cumsum = {}
     for exp in exp_list:
         yearly_cumsums = []
+        running_total = 0  # Keep track of cumulative total across years
         for ds in exp_datasets[exp]:
             # Calculate spatial mean over domain, then cumulative sum over time
             spatial_mean = ds.mean(dim=['latitude', 'longitude'])
             cumsum = spatial_mean.cumsum(dim='time').compute()
-            yearly_cumsums.append(cumsum)
+            # Add the running total from previous years to continue accumulation
+            cumsum_adjusted = cumsum + running_total
+            yearly_cumsums.append(cumsum_adjusted)
+            # Update running total with the final value of this year
+            running_total = cumsum_adjusted.isel(time=-1).values
         # Concatenate yearly cumsums along time
         exp_cumsum[exp] = xr.concat(yearly_cumsums, dim='time')
     # Create the timeseries plot
@@ -392,20 +391,15 @@ def plot_all_accumulation(dom, domain_data):
             zorder=10)
     
     # Save the plot
-    fname = f'{plotpath}/{precip_var}_cumulative_timeseries_{dom}.png'
+    fname = f'{plotpath}/{precip_var}_cumulative_timeseries_{dom}{suffix}.png'
     print(f'Saving timeseries plot to {fname}')
     fig.savefig(fname, dpi=300, bbox_inches='tight')
-    
-    # Cleanup
-    plt.close(fig)
-    plt.clf()
-    plt.cla()
     
     print(f"Completed timeseries plot for domain {dom}")
     
     return fname
 
-def plot_monthly_overlay_accumulation(dom, domain_data):
+def plot_monthly_overlay_accumulation(dom, domain_data, suffix):
     """Plots cumulative precipitation timeseries overlaid by month for each year"""
     
     print(f"\nCreating monthly overlay cumulative precipitation plot for domain: {dom}")
@@ -450,19 +444,10 @@ def plot_monthly_overlay_accumulation(dom, domain_data):
         mask = (months == 12) | (months == 1) | (months == 2)
         anomaly_filtered = anomaly_cumsum[mask]
         
-        # Calculate day of year for each timestep, starting from Dec 1 as day 1
+        # Calculate timestep indices for each timestep, starting from timestep 1
         time_filtered = anomaly_filtered.time
-        day_of_season = []
-        for t in time_filtered:
-            month = t.dt.month.values
-            day = t.dt.day.values
-            if month == 12:
-                day_of_season.append(day)  # Dec 1-31 = days 1-31
-            elif month == 1:
-                day_of_season.append(day + 31)  # Jan 1-31 = days 32-62
-            elif month == 2:
-                day_of_season.append(day + 31 + 31)  # Feb 1-28/29 = days 63-90/91
-        
+        timestep_indices = list(range(1, len(time_filtered) + 1))
+
         # Get year from cylc_id attribute
         year_label = control_ds.attrs.get('cylc_id', f'Year_{year_idx+1}')
         if 'cylc_id' in control_ds.attrs:
@@ -470,37 +455,39 @@ def plot_monthly_overlay_accumulation(dom, domain_data):
         
         # Plot anomaly line for this year
         color = colors[year_idx % len(colors)]
-        ax.plot(day_of_season, anomaly_filtered.values, 
-               label=f'Anomaly {year_label}', linewidth=1, color=color, alpha=0.8)
+        ax.plot(timestep_indices, anomaly_filtered.values, 
+               linewidth=1, color=color, alpha=0.8)
+        
+        # Add year label next to the last point
+        if len(timestep_indices) > 0 and len(anomaly_filtered.values) > 0:
+            last_x = timestep_indices[-1]
+            last_y = anomaly_filtered.values[-1]
+            ax.text(last_x + 5, last_y, year_label, fontsize=8, 
+                   verticalalignment='center', color=color, alpha=0.9)
 
     ax.axhline(0, color='black', linestyle='--', linewidth=1)
     
     # Format the plot
-    ax.set_xlabel('Day of Season (Dec 1 is Day 1)')
+    ax.set_xlabel('Timestep in Season (Dec 1 is Timestep 1)')
     ax.set_ylabel('Cumulative Precipitation Anomaly [mm]')
-    ax.set_title(f'Cumulative {precip_var.replace("_", " ").title()} Anomaly - {dom} Domain\nDaily Overlay (Years: {", ".join([id.split("_")[-1] for id in cylc_ids])})')
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+    ax.set_title(f'Cumulative {precip_var.replace("_", " ").title()} Years: {", ".join([id.split("_")[-1] for id in cylc_ids])}')
     ax.grid(True, alpha=0.3)
     
-    # Set x-axis to show key days
-    ax.set_xticks([1, 15, 31, 45, 62, 75, 90])
+    # Set x-axis to show key timesteps (approximate for 3-hourly data)
+    ts_per_day = 24
+    key_timesteps = [1, 15*ts_per_day, 31*ts_per_day, 45*ts_per_day, 62*ts_per_day, 75*ts_per_day, 90*ts_per_day]
+    ax.set_xticks(key_timesteps)
     ax.set_xticklabels(['Dec 1', 'Dec 15', 'Dec 31', 'Jan 15', 'Jan 31', 'Feb 15', 'Feb 28'])
-    ax.tick_params(axis='x', rotation=45)
+    ax.tick_params(axis='x')
     
     # Save the plot
-    fname = f'{plotpath}/{precip_var}_monthly_overlay_timeseries_{dom}.png'
+    fname = f'{plotpath}/{precip_var}_monthly_overlay_timeseries_{dom}{suffix}.png'
     print(f'Saving monthly overlay plot to {fname}')
     fig.savefig(fname, dpi=300, bbox_inches='tight')
-    
-    # Cleanup
-    plt.close(fig)
-    plt.clf()
-    plt.cla()
     
     print(f"Completed monthly overlay plot for domain {dom}")
     
     return fname
-
 
 ##############################################################################
 
@@ -520,14 +507,30 @@ if __name__ == "__main__":
     
         # Load data for dom
         domain_data = load_dom_data(dom)
+
+        # create masked_domain_data
+        datapath = f'/g/data/fy29/mjl561/cylc-run/{cylc_ids[0]}/netcdf'
+        exp1 = domain_data['experiments'][0]
+        lsm_fname = f'{datapath}/land_sea_mask/{exp1}_land_sea_mask.nc'
+        lsm_mask = xr.open_dataset(lsm_fname).isel(time=0).compute()
+
+        masked_domain_data = {
+            'data': domain_data['data'].copy(), # will be replaced below  
+            'variable': domain_data['variable'],
+            'experiments': domain_data['experiments']
+        }
+        
+        # Overwrite data with masked versions using a loop, preserving DataArray structure
+        for exp, datasets in domain_data['data'].items():
+            masked_domain_data['data'][exp] = [ds.where(lsm_mask.squeeze().to_array() == 1) for ds in datasets]
+
+        plot_total_accumulation(dom, domain_data, suffix='')
+        print(f"Completed total accumulation plotting for domain {dom}")
     
-        # plot_total_accumulation(dom, domain_data)
-        # print(f"Completed total accumulation plotting for domain {dom}")
+        plot_all_accumulation_timeseries(dom, masked_domain_data, suffix='_masked')
+        print(f"Completed cumulative timeseries plotting for domain {dom}")
     
-        # plot_all_accumulation(dom, domain_data)
-        # print(f"Completed cumulative timeseries plotting for domain {dom}")
-    
-        plot_monthly_overlay_accumulation(dom, domain_data)
+        plot_monthly_overlay_accumulation(dom, masked_domain_data, suffix='_masked')
         print(f"Completed monthly overlay plotting for domain {dom}")
     
     # Create cumulative timeseries plots using the same loaded data
