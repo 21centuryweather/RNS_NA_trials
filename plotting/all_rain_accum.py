@@ -26,7 +26,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 ##############################################################################
 
 # Paths
-years = ['2014','2015', '2016', '2017', '2018', '2019', '2020']
+years = ['2011', '2012', '2013', '2014','2015', '2016', '2017', '2018', '2019', '2020']
 cylc_ids = [f'rns_ostia_NA_{year}' for year in years]
 # Use the first cylc_id for the output path
 plotpath = f'/g/data/fy29/mjl561/cylc-run/rns_ostia_NA_all/figures'
@@ -35,6 +35,7 @@ xmin, xmax, ymin, ymax = 123.64, 140.34, -9.08, -22.64
 
 # Domains and experiments
 doms = ['GAL9', 'RAL3P2']
+doms = ['GAL9']
 exps = {
     'RAL3P2': ['CCIv2_RAL3P2', 'CCIv2_RAL3P2_mod'],
     'GAL9': ['CCIv2_GAL9', 'CCIv2_GAL9_mod']
@@ -568,14 +569,14 @@ if __name__ == "__main__":
         for exp, datasets in domain_data['data'].items():
             masked_domain_data['data'][exp] = [ds.where(lsm_mask.squeeze().to_array() == 1) for ds in datasets]
 
-        # plot_total_accumulation(dom, domain_data, suffix='')
-        # print(f"Completed total accumulation plotting for domain {dom}")
+        plot_total_accumulation(dom, domain_data, suffix='')
+        print(f"Completed total accumulation plotting for domain {dom}")
 
-        # plot_total_accumulation(dom, masked_domain_data, suffix='_masked')
-        # print(f"Completed total accumulation plotting for domain {dom}")
+        plot_total_accumulation(dom, masked_domain_data, suffix='_masked')
+        print(f"Completed total accumulation plotting for domain {dom}")
     
-        # plot_all_accumulation_timeseries(dom, masked_domain_data, suffix='_masked')
-        # print(f"Completed cumulative timeseries plotting for domain {dom}")
+        plot_all_accumulation_timeseries(dom, masked_domain_data, suffix='_masked')
+        print(f"Completed cumulative timeseries plotting for domain {dom}")
     
         plot_monthly_overlay_accumulation(dom, masked_domain_data, suffix='_masked')
         print(f"Completed monthly overlay plotting for domain {dom}")

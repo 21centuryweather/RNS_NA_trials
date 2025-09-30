@@ -46,15 +46,16 @@ variables = ['latent_heat_flux']
 variables = ['geopotential_height_3d']
 variables = ['relative_humidity_3d']
 variables = ['air_temperature_3d']
-variables = ['stratiform_rainfall_flux','total_precipitation_rate']
 variables = ['moist_static_energy_3d']
 variables = ['upward_air_velocity_3d']
 variables = ['wind_speed']
+variables = ['stratiform_rainfall_flux','total_precipitation_rate']
+variables = ['air_pressure_at_sea_level']
 variables = ['moisture_convergence_emma']
 
-doms = ['GAL9']
 doms = ['RAL3P2']
 doms = ['GAL9','RAL3P2']
+doms = ['GAL9']
 
 ###############################################################################
 
@@ -432,7 +433,7 @@ def plot_spatial(dss, opts, exps, dom, datapath, cycle_path, coarsen=False, suff
         title = exp if exp != 'diff' else f'{exps[1]} - {exps[0]} difference'
         cbar_title =  f'mean {opts["plot_title"]} [{opts["units"]}]' if exp != 'diff' else f'difference {opts["plot_title"]} [{opts["units"]}]'
 
-        if variable in ['moisture_convergence_old','moisture_convergence_emma']:
+        if opts['variable'] in ['moisture_convergence_old','moisture_convergence_emma']:
             diff_vmax = 400
             if exp == 'diff':
                 cmap = 'coolwarm_r'
@@ -1032,7 +1033,8 @@ def get_variable_opts(variable):
         'cmap'      : 'viridis',
         'threshold' : None,
         'fmt'       : '{:.2f}',
-        'dtype'     : 'float32'
+        'dtype'     : 'float32',
+        'variable'  : variable,
         }
     
     if variable == 'air_temperature':
@@ -1204,6 +1206,20 @@ def get_variable_opts(variable):
             'vmin'      : 88000,
             'vmax'      : 104000,
             'cmap'      : 'viridis',
+            })
+
+    elif variable == 'air_pressure_at_sea_level':
+        opts.update({
+            'constraint': 'air_pressure_at_sea_level',
+            'plot_title': 'air pressure at sea level',
+            'plot_fname': 'air_pressure_at_sea_level',
+            'units'     : 'Pa',
+            'obs_key'   : 'SLP',
+            'fname'     : 'umnsaa_pverb',
+            'vmin'      : 97000,
+            'vmax'      : 103000,
+            'cmap'      : 'viridis',
+            'fmt'       : '{:.1f}',
             })
 
     elif variable == 'wind_speed_of_gust':
