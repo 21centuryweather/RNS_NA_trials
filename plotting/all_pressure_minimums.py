@@ -256,10 +256,13 @@ def plot_mean_minimum_pressure(dom, domain_data, suffix):
     # Set up consistent color scales
     pressure_min = min([mean_min_pressure.sel(experiment=exp).min().values for exp in exp_list])
     pressure_max = max([mean_min_pressure.sel(experiment=exp).max().values for exp in exp_list])
+    pressure_min = 985 # hardcode
+    pressure_max = 1005 # hardcode
     
     diff_data = mean_min_pressure.sel(experiment='diff')
     diff_max = abs(diff_data).max().values
     diff_vlim = np.ceil(diff_max * 10) / 10  # Round up to nearest 0.1 hPa
+    diff_vlim = 5 # hardcode 
     
     print(f"Using pressure range: {pressure_min:.1f} to {pressure_max:.1f} hPa")
     print(f"Using difference limit: ±{diff_vlim:.1f} hPa")

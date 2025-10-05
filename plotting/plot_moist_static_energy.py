@@ -26,7 +26,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 ##############################################################################
 
 # Paths
-years = ['2014','2015', '2016', '2017', '2018', '2019', '2020']
+years = ['2011','2012','2013','2014','2015', '2016', '2017', '2018', '2019', '2020']
 cylc_ids = [f'rns_ostia_NA_{year}' for year in years]
 # Use the first cylc_id for the output path
 plotpath = f'/g/data/fy29/mjl561/cylc-run/rns_ostia_NA_all/figures'
@@ -35,6 +35,7 @@ xmin, xmax, ymin, ymax = 123.64, 140.34, -9.08, -22.64
 
 # Domains and experiments
 doms = ['GAL9', 'RAL3P2']
+doms = ['GAL9']
 exps = {
     'RAL3P2': ['CCIv2_RAL3P2', 'CCIv2_RAL3P2_mod'],
     'GAL9': ['CCIv2_GAL9', 'CCIv2_GAL9_mod']
@@ -221,10 +222,10 @@ def load_dom_data(dom):
         print(f"No data found for domain {dom}")
         return None
 
-def calculate_mean_mse(domain_data):
-    """Calculate multi-year mean moist static energy for each experiment"""
+def calculate_yearly_means_mse(domain_data):
+    """Calculate yearly mean moist static energy for each experiment"""
     
-    print(f"\nCalculating multi-year mean moist static energy...")
+    print(f"\nCalculating yearly mean moist static energy...")
     
     exp_datasets = domain_data['data']  # dict of exp -> list of yearly datasets
     exp_list = domain_data['experiments']
@@ -232,10 +233,10 @@ def calculate_mean_mse(domain_data):
     print(f"Variable: {variable}")
     print(f"Experiments: {exp_list}")
    
-    # Calculate mean for each experiment by averaging over time for each year, then averaging those results
-    exp_means = {}
+    # Calculate yearly means for each experiment
+    exp_yearly_means = {}
     for exp in exp_list:
-        print(f"Calculating mean for experiment: {exp}")
+        print(f"Calculating yearly means for experiment: {exp}")
         yearly_means = []
         for i, ds in enumerate(exp_datasets[exp]):
             try:
@@ -258,26 +259,41 @@ def calculate_mean_mse(domain_data):
                 continue
         
         if yearly_means:
-            exp_mean = sum(yearly_means) / len(yearly_means)  # Average across years
-            exp_means[exp] = exp_mean
-            print(f"  Successfully calculated mean for {exp} using {len(yearly_means)} years")
+            exp_yearly_means[exp] = yearly_means
+            print(f"  Successfully calculated yearly means for {exp} using {len(yearly_means)} years")
         else:
             print(f"  Warning: No valid data found for {exp}")
             continue
 
-    # Check if we have valid data for both experiments
-    if len(exp_means) < 2:
-        print(f"Warning: Only found data for {len(exp_means)} experiments, need at least 2")
-        if len(exp_means) == 1:
-            # Return single experiment data
-            exp = list(exp_means.keys())[0]
-            single_exp = exp_means[exp].expand_dims('experiment').assign_coords(experiment=[exp])
-            print(f"Data shape: {single_exp.shape}")
-            print(f"MSE range: {single_exp.min().values:.1f} to {single_exp.max().values:.1f} J/kg")
-            return single_exp
-        else:
-            raise ValueError("No valid experiment data found")
+    # Check if we have valid data
+    if len(exp_yearly_means) < 1:
+        raise ValueError("No valid experiment data found")
+    
+    # Return the yearly means structure
+    yearly_means_data = {
+        'yearly_means': exp_yearly_means,  # dict of exp -> list of yearly mean datasets
+        'variable': variable,
+        'experiments': exp_list
+    }
+    
+    print(f"Successfully calculated yearly means for {len(exp_yearly_means)} experiments")
+    
+    return yearly_means_data
 
+def aggregate_to_multiyear_mean(yearly_means_data):
+    """Aggregate yearly means to multi-year mean with difference experiment"""
+    
+    exp_yearly_means = yearly_means_data['yearly_means']
+    exp_list = yearly_means_data['experiments']
+    
+    # Calculate multi-year mean for each experiment
+    exp_means = {}
+    for exp in exp_list:
+        if exp in exp_yearly_means and exp_yearly_means[exp]:
+            # Average across years for this experiment
+            exp_mean = sum(exp_yearly_means[exp]) / len(exp_yearly_means[exp])
+            exp_means[exp] = exp_mean
+    
     # Create dataset with experiment dimension
     mean_list = []
     for exp in exp_list:
@@ -290,14 +306,14 @@ def calculate_mean_mse(domain_data):
 
     # Add difference as a new experiment (only if we have 2 experiments)
     if len(mean_list) >= 2:
-        print("Calculating difference...")
         available_exps = [exp for exp in exp_list if exp in exp_means]
         diff_data = mean_mse.sel(experiment=available_exps[1]) - mean_mse.sel(experiment=available_exps[0])
         diff_data = diff_data.expand_dims('experiment').assign_coords(experiment=['diff'])
         mean_mse = xr.concat([mean_mse, diff_data], dim='experiment')
     
-    print(f"Data shape: {mean_mse.shape}")
-    print(f"MSE range: {mean_mse.min().values:.1f} to {mean_mse.max().values:.1f} J/kg")
+    print(f"Multi-year mean data shape: {mean_mse.shape}")
+    if len(mean_list) > 0:
+        print(f"MSE range: {mean_mse[0:-1, ...].min().values:.1f} to {mean_mse[0:-1, ...].max().values:.1f} J/kg")
     
     return mean_mse
 
@@ -400,7 +416,7 @@ def plot_spatial(dom, mean_mse, pressure_level, suffix=''):
         ax.set_title(title, fontsize=10)
         
         # Add cylc_id list in top left corner
-        cylc_text = '\n'.join(cylc_ids)
+        cylc_text = '\n'.join([cylc_id.split('_')[-1] for cylc_id in cylc_ids])
         ax.text(0.02, 0.98, cylc_text, transform=ax.transAxes, 
                 fontsize=6, verticalalignment='top', horizontalalignment='left',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, edgecolor='none'),
@@ -435,8 +451,8 @@ def plot_spatial(dom, mean_mse, pressure_level, suffix=''):
     fig.savefig(fname, dpi=300, bbox_inches='tight')
     
     return fname
-    
-def plot_vertical_profiles(dom, mean_mse, suffix=''):
+
+def plot_vertical_profiles(dom, mean_mse, yearly_means_data=None, heights=None, suffix=''):
     """Plot vertical profiles of moist static energy and anomaly profile"""
     
     print(f"\nPlotting vertical profiles for domain: {dom}")
@@ -469,24 +485,66 @@ def plot_vertical_profiles(dom, mean_mse, suffix=''):
         # Calculate anomaly (modified - control)
         anomaly = modified_data - control_data
         
-        # Plot anomaly profile
+        # Plot individual year anomalies as thin red lines (if yearly_means_data is available)
+        if yearly_means_data is not None and len(exp_list) >= 2:
+            exp_yearly_means = yearly_means_data['yearly_means']
+            control_exp = exp_list[0]
+            modified_exp = exp_list[1]
+            
+            # Get individual yearly means for both experiments
+            if control_exp in exp_yearly_means and modified_exp in exp_yearly_means:
+                control_yearly_means = exp_yearly_means[control_exp]
+                modified_yearly_means = exp_yearly_means[modified_exp]
+                
+                # Plot anomaly for each year (assuming same number of years for both experiments)
+                n_years = min(len(control_yearly_means), len(modified_yearly_means))
+                
+                # Get pressure range from first year for jitter calculation
+                if n_years > 0:
+                    first_control = control_yearly_means[0].mean(dim=['latitude', 'longitude'])
+                    pressure_range = first_control.pressure.max().values - first_control.pressure.min().values
+                    jitter_range = pressure_range * 0.03  # 3% jitter
+                
+                for i in range(n_years):
+                    try:
+                        # Calculate spatial mean for each year (data is already temporally averaged)
+                        control_year_spatial = control_yearly_means[i].mean(dim=['latitude', 'longitude'])
+                        modified_year_spatial = modified_yearly_means[i].mean(dim=['latitude', 'longitude'])
+                        
+                        # Calculate year anomaly
+                        year_anomaly = modified_year_spatial - control_year_spatial
+                        
+                        # Plot thin red line with original pressure (no jitter)
+                        axes[1].plot(year_anomaly.values, year_anomaly.pressure, 
+                                    color='red', linewidth=1, alpha=0.25)
+                        
+                        # Add year label at the bottom with jitter to prevent text overlap
+                        # Get the year from cylc_ids list (assuming they match the order)
+                        if i < len(cylc_ids):
+                            year = cylc_ids[i].split('_')[-1]  # Extract year from cylc_id
+                            surface_pressure = year_anomaly.pressure.max().values  # Highest pressure (bottom)
+                            surface_anomaly = year_anomaly.sel(pressure=surface_pressure, method='nearest').values
+                            
+                            # Add jitter only to the text label position
+                            np.random.seed(i)  # Use deterministic seed for reproducibility
+                            pressure_jitter = np.random.uniform(-jitter_range, jitter_range)
+                            jittered_label_pressure = surface_pressure + pressure_jitter
+                            
+                            # Add small text label with jittered position
+                            axes[1].text(surface_anomaly, jittered_label_pressure, year, 
+                                       fontsize=6, ha='center', va='bottom', 
+                                       color='red', alpha=0.7)
+                        
+                    except Exception as e:
+                        print(f"    Warning: Could not plot year {i+1} anomaly: {e}")
+                        continue
+        
+        # Plot mean anomaly profile (thick red line)
         axes[1].plot(anomaly.values, anomaly.pressure, 
                     color='red', linewidth=3, label=f'{exp_list[1]} - {exp_list[0]}')
         
         # Add zero reference line
         axes[1].axvline(0, color='black', linestyle='-', alpha=0.5, linewidth=1)
-        
-        # Set title and labels for anomaly plot
-        axes[1].set_ylabel('Pressure [hPa]')
-        axes[1].set_xlabel('MSE Anomaly [J/kg]')
-        axes[1].set_title(f'MSE Anomaly Profile\n{dom} Domain')
-        axes[1].invert_yaxis()  # Higher pressure at bottom
-        axes[1].grid(True, alpha=0.3)
-        axes[1].legend()
-        
-        # Add reference pressure lines
-        axes[1].axhline(500, color='black', linestyle='--', alpha=0.5)
-        axes[1].axhline(850, color='black', linestyle=':', alpha=0.5)
         
         # Print some statistics about the anomaly
         print(f"  Anomaly statistics for {dom}:")
@@ -500,20 +558,33 @@ def plot_vertical_profiles(dom, mean_mse, suffix=''):
                     transform=axes[1].transAxes, ha='center', va='center',
                     fontsize=12, bbox=dict(boxstyle='round', facecolor='lightgray'))
         axes[1].set_title(f'MSE Anomaly Profile\n{dom} Domain')
-    
+
     # Format profile subplot
-    axes[0].set_ylabel('Pressure [hPa]')
-    axes[0].set_xlabel('Moist Static Energy [J/kg]')
-    axes[0].set_title(f'MSE Vertical Profile\n{dom} Domain')
-    axes[0].invert_yaxis()  # Higher pressure at bottom
-    axes[0].grid(True, alpha=0.3)
-    axes[0].legend()
-    
-    # Add reference lines to profile
-    axes[0].axhline(500, color='black', linestyle='--', alpha=0.5)
-    axes[0].axhline(850, color='black', linestyle=':', alpha=0.5)
-    
-    plt.tight_layout()
+    for ax in axes.flatten():
+        ax.set_ylabel('Pressure [hPa]')
+        ax.set_xlabel('Moist Static Energy [J/kg]')
+        ax.set_yticks(mean_mse.pressure.values)
+        ax.set_title(f'MSE Vertical Profile\n{dom} Domain')
+        ax.invert_yaxis()  # Higher pressure at bottom
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+
+    # for anomaly plot
+    axes[1].set_xlabel('MSE Anomaly [J/kg]')
+    axes[1].set_title(f'MSE Anomaly Profile\n{dom} Domain')
+
+    # Add reference pressure lines
+    if heights is not None:
+        for ax in axes.flatten():
+            for h in heights:
+                ax.axhline(h, color='black', linestyle='--', alpha=0.5)
+
+    # Add cylc_id list in top left corner
+    cylc_text = '\n'.join([cylc_id.split('_')[-1] for cylc_id in cylc_ids])
+    axes[0].text(0.02, 0.9, cylc_text, transform=axes[0].transAxes, 
+            fontsize=6, verticalalignment='top', horizontalalignment='left',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, edgecolor='none'),
+            zorder=10)
     
     plt.tight_layout()
     
@@ -527,6 +598,19 @@ def plot_vertical_profiles(dom, mean_mse, suffix=''):
 ##############################################################################
 
 if __name__ == "__main__":
+    
+    print('load dask')
+    from dask.distributed import Client
+    n_workers = int(os.environ['PBS_NCPUS'])
+    local_directory = os.path.join(os.environ['PBS_JOBFS'], 'dask-worker-space')
+    try:
+        print(client)
+    except Exception:
+        client = Client(
+            n_workers=n_workers,
+            threads_per_worker=1, 
+            local_directory = local_directory)
+
     """Main function to create moist static energy plots for all domains"""
     print("Starting moist static energy plotting...")
     print(f"Searching for data in cylc_ids: {cylc_ids}")
@@ -546,18 +630,46 @@ if __name__ == "__main__":
             print(f"Skipping {dom} - no data found")
             continue
         
-        # Calculate multi-year mean
-        mean_mse = calculate_mean_mse(domain_data)
+        # Calculate yearly means
+        yearly_means_data = calculate_yearly_means_mse(domain_data)
         
-        # Plot spatial maps at two pressure levels
+        # Aggregate to multi-year mean for spatial plots
+        mean_mse = aggregate_to_multiyear_mean(yearly_means_data).compute()
+        
+        # Plot spatial maps at three pressure levels
         plot_spatial(dom, mean_mse, 500, suffix='')
         print(f"Completed 500 hPa spatial plotting for domain {dom}")
+
+        plot_spatial(dom, mean_mse, 700, suffix='')
+        print(f"Completed 700 hPa spatial plotting for domain {dom}")
         
         plot_spatial(dom, mean_mse, 850, suffix='')
         print(f"Completed 850 hPa spatial plotting for domain {dom}")
         
         # Plot vertical profiles
-        plot_vertical_profiles(dom, mean_mse, suffix='')
+        plot_vertical_profiles(dom, mean_mse, yearly_means_data=None, heights=[500,700,850], suffix='')
         print(f"Completed vertical profile plotting for domain {dom}")
+
+        plot_vertical_profiles(dom, mean_mse, yearly_means_data=yearly_means_data, heights=[500,700,850], suffix='_with_years')
+        print(f"Completed vertical profile plotting for domain {dom}")
+
+        # plot vertical profile for GAL9 with RAL3P2 domain outline
+        if dom == 'GAL9':
+            g9_subset = mean_mse.sel(latitude=slice(ymax,ymin),longitude=slice(xmin,xmax)).compute()
+            
+            # Also subset the yearly means data to match the spatial subset
+            yearly_means_subset = {'yearly_means': {}, 'variable': yearly_means_data['variable'], 'experiments': yearly_means_data['experiments']}
+            for exp in yearly_means_data['experiments']:
+                if exp in yearly_means_data['yearly_means']:
+                    yearly_means_subset['yearly_means'][exp] = [
+                        year_data.sel(latitude=slice(ymax,ymin),longitude=slice(xmin,xmax)) 
+                        for year_data in yearly_means_data['yearly_means'][exp]
+                    ]
+            
+            plot_vertical_profiles(dom, g9_subset, yearly_means_data=None, heights=[500,700,850], suffix='_within_RAL3P2')
+            print(f"Completed vertical profile plotting for domain {dom} with RAL3P2 outline")
+
+            plot_vertical_profiles(dom, g9_subset, yearly_means_data=yearly_means_subset, heights=[500,700,850], suffix='_within_RAL3P2_with_years')
+            print(f"Completed vertical profile plotting for domain {dom} with RAL3P2 outline")
     
     print("\nAll moist static energy plotting completed!")

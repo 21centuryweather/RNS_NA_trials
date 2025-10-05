@@ -580,6 +580,16 @@ if __name__ == "__main__":
     
         plot_monthly_overlay_accumulation(dom, masked_domain_data, suffix='_masked')
         print(f"Completed monthly overlay plotting for domain {dom}")
+
+        # plot accumulation for GAL9 within RAL3P2 domain outline
+        if dom == 'GAL9':
+            g9_domain_data = domain_data.sel(latitude=slice(ymax,ymin),longitude=slice(xmin,xmax)).compute()
+            plot_total_accumulation(dom, g9_domain_data, suffix='_in_RAL3P2')
+            print(f"Completed total accumulation plotting for {dom} within RAL3P2 outline
+
+            g9_masked_domain_data = masked_domain_data.sel(latitude=slice(ymax,ymin),longitude=slice(xmin,xmax)).compute()
+            plot_total_accumulation(dom, masked_domain_data, suffix='_in_RAL3P2')
+            print(f"Completed total accumulation plotting for {dom} within RAL3P2 outline")
     
     # Create cumulative timeseries plots using the same loaded data
     

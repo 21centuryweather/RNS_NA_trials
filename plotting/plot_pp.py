@@ -46,12 +46,12 @@ variables = ['latent_heat_flux']
 variables = ['geopotential_height_3d']
 variables = ['relative_humidity_3d']
 variables = ['air_temperature_3d']
-variables = ['moist_static_energy_3d']
 variables = ['upward_air_velocity_3d']
 variables = ['wind_speed']
 variables = ['stratiform_rainfall_flux','total_precipitation_rate']
 variables = ['air_pressure_at_sea_level']
 variables = ['moisture_convergence_emma']
+variables = ['moist_static_energy_3d']
 
 doms = ['RAL3P2']
 doms = ['GAL9','RAL3P2']
@@ -174,11 +174,13 @@ def main(datapath, plotpath, cycle_path, doms, cylc_id):
                         ds[exp] = xr.open_dataset(ncfname)[variable]
                     else:
                         # Use cached data instead of reloading
+                        print('calculating moist static energy 3d (slow...)')
                         t3d = cached_data[exp]['air_temperature_3d']
                         rh3d = cached_data[exp]['relative_humidity_3d']
                         z3d = cached_data[exp]['geopotential_height_3d']
 
                         ds[exp] = calc_moist_static_energy(t3d, rh3d, z3d)
+                        print('saving moist static energy netcdf')
                         save_netcdf(ds[exp], exp, opts)
 
                 elif variable == 'wind_speed':
